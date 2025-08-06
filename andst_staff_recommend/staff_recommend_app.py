@@ -1,4 +1,5 @@
 import streamlit as st
+from bg_style import set_pixel_background
 import pandas as pd
 from datetime import datetime, date
 import calendar
@@ -7,7 +8,8 @@ from collections import defaultdict
 from db import init_db, insert_or_update_record, load_all_records, get_target, set_target, init_target_table
 from data_management import show_data_management
 
-def init_session():
+def init_session()
+set_pixel_background():
     if "data" not in st.session_state:
         st.session_state.data = load_all_records()
     if "names" not in st.session_state:
@@ -16,6 +18,7 @@ def init_session():
 init_db()
 init_target_table()
 init_session()
+set_pixel_background()
 
 st.title("and st統計記録")
 
