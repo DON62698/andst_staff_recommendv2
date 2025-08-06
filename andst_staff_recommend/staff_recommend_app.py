@@ -13,10 +13,12 @@ def init_session():
         st.session_state.data = load_all_records()
     if "names" not in st.session_state:
         st.session_state.names = set([r["name"] for r in st.session_state.data])
-    if "data" not in st.session_state:
-        st.session_state.data = load_all_records()
-    if "names" not in st.session_state:
-        st.session_state.names = set([r["name"] for r in st.session_state.data])
+
+init_db()
+init_target_table()
+init_session()
+set_pixel_background()
+
 set_pixel_background()
     if "data" not in st.session_state:
         st.session_state.data = load_all_records()
