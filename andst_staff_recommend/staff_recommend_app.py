@@ -1,38 +1,30 @@
 import streamlit as st
-from bg_style import set_pixel_background
 import pandas as pd
-from datetime import datetime, date
+from datetime import date
 import calendar
 import matplotlib.pyplot as plt
 from collections import defaultdict
-from db import init_db, insert_or_update_record, load_all_records, get_target, set_target, init_target_table
-from data_management import show_data_management
+from db import init_db, init_target_table, load_all_records, save_record, delete_record, get_target, set_target
+from bg_style import set_pixel_background
 
 def init_session():
     if "data" not in st.session_state:
         st.session_state.data = load_all_records()
     if "names" not in st.session_state:
         st.session_state.names = set([r["name"] for r in st.session_state.data])
+    if "app_target" not in st.session_state:
+        st.session_state.app_target = get_target("app")
+    if "survey_target" not in st.session_state:
+        st.session_state.survey_target = get_target("survey")
 
 init_db()
 init_target_table()
 init_session()
 set_pixel_background()
 
-set_pixel_background()
-    if "data" not in st.session_state:
-        st.session_state.data = load_all_records()
-    if "names" not in st.session_state:
-        st.session_state.names = set([r["name"] for r in st.session_state.data])
+st.title("and st 統計記録")
 
-init_db()
-init_target_table()
-init_session()
-set_pixel_background()
-
-st.title("and st統計記録")
-
-tab1, tab2, tab3 = st.tabs(["APP推薦紀錄", "アンケート紀錄", "データ管理"])
+tab1, tab2 = st.tabs(["APP推薦紀錄", "アンケート紀錄"])
 
 def get_week_str(input_date):
     return f"{input_date.isocalendar().week}w"
@@ -64,7 +56,7 @@ def record_form(label, category):
         submitted = st.form_submit_button("保存")
         if submitted:
             record = {
-                "date": selected_date.strftime("%Y-%m-%d"),
+                "date": selected_date.isoformat(),
                 "week": get_week_str(selected_date),
                 "name": name,
                 "type": category,
@@ -73,33 +65,26 @@ def record_form(label, category):
                 record.update({"新規": new, "既存": exist, "LINE": line})
             else:
                 record.update({"アンケート": survey})
-
-            st.session_state.data = [r for r in st.session_state.data if not (r["date"] == record["date"] and r["name"] == name and r["type"] == category)]
-            st.session_state.data.append(record)
-            insert_or_update_record(record)
-
+            save_record(record)
+            st.session_state.data = load_all_records()
             st.success("保存しました")
 
-with tab1:
-    record_form("APP推薦紀錄", "app")
-    st.divider()
-    st.subheader("APP月目標設定")
-    current_month = date.today().strftime("%Y-%m")
-    app_target = get_target(current_month, "app")
-    new_app_target = st.number_input("APP 月目標件数", 0, 1000, app_target)
-    if new_app_target != app_target:
-        set_target(current_month, "app", int(new_app_target))
-        st.experimental_rerun()
+    with st.expander("入力済みデータ"):
+        records = [r for r in st.session_state.data if r["type"] == category]
+        if not records:
+            st.info("まだデータがありません")
+        else:
+            df = pd.DataFrame(records)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.sort_values(by="date", ascending=False)
+            st.dataframe(df)
 
-with tab2:
-    record_form("アンケート紀錄", "survey")
-    st.divider()
-    st.subheader("アンケート月目標設定")
-    survey_target = get_target(current_month, "survey")
-    new_survey_target = st.number_input("アンケート 月目標件数", 0, 1000, survey_target)
-    if new_survey_target != survey_target:
-        set_target(current_month, "survey", int(new_survey_target))
-        st.experimental_rerun()
+            delete_date = st.date_input("削除対象の日付", key=f"{category}_delete_date")
+            delete_name = st.selectbox("削除対象の名前", options=sorted(st.session_state.names), key=f"{category}_delete_name")
+            if st.button("削除", key=f"{category}_delete_button"):
+                delete_record(delete_date, delete_name, category)
+                st.session_state.data = load_all_records()
+                st.success("削除しました")
 
 def show_statistics(category, label):
     st.header(f"{label} 統計")
@@ -115,10 +100,10 @@ def show_statistics(category, label):
 
     if category == "app":
         total = df[["新規", "既存", "LINE"]].sum().sum()
-        target = get_target(current_month, "app")
+        target = st.session_state.app_target
     else:
         total = df["アンケート"].sum()
-        target = get_target(current_month, "survey")
+        target = st.session_state.survey_target
 
     st.metric("今月累計件数", int(total))
     if target:
@@ -141,8 +126,23 @@ def show_statistics(category, label):
             plt.pie([app_total, line_total], labels=["App", "LINE"], autopct="%1.1f%%", startangle=90)
             st.pyplot(plt.gcf())
 
+with tab1:
+    record_form("APP推薦紀錄", "app")
+    st.divider()
+    st.subheader("APP月目標設定")
+    new_target = st.number_input("APP 月目標件数", 0, 1000, st.session_state.app_target)
+    if new_target != st.session_state.app_target:
+        st.session_state.app_target = new_target
+        set_target("app", new_target)
+
+with tab2:
+    record_form("アンケート紀錄", "survey")
+    st.divider()
+    st.subheader("アンケート月目標設定")
+    new_target = st.number_input("アンケート 月目標件数", 0, 1000, st.session_state.survey_target)
+    if new_target != st.session_state.survey_target:
+        st.session_state.survey_target = new_target
+        set_target("survey", new_target)
+
 show_statistics("app", "APP")
 show_statistics("survey", "アンケート")
-
-with tab3:
-    show_data_management()
