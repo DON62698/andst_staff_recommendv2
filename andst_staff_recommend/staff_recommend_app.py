@@ -5,20 +5,13 @@ import calendar
 import matplotlib.pyplot as plt
 from collections import defaultdict
 from db import init_db, insert_or_update_record, load_all_records, get_target, set_target, init_target_table
+from data_management import show_data_management
 
-# 初始化 session state
-
-init_target_table()
-init_session():
-    init_db()
+def init_session():
     if "data" not in st.session_state:
         st.session_state.data = load_all_records()
     if "names" not in st.session_state:
         st.session_state.names = set([r["name"] for r in st.session_state.data])
-    if "app_target" not in st.session_state:
-        st.session_state.app_target = 0
-    if "survey_target" not in st.session_state:
-        st.session_state.survey_target = 0
 
 init_db()
 init_target_table()
@@ -26,7 +19,7 @@ init_session()
 
 st.title("and st統計記録")
 
-tab1, tab2 = st.tabs(["APP推薦紀錄", "アンケート紀錄"])
+tab1, tab2, tab3 = st.tabs(["APP推薦紀錄", "アンケート紀錄", "データ管理"])
 
 def get_week_str(input_date):
     return f"{input_date.isocalendar().week}w"
@@ -68,7 +61,6 @@ def record_form(label, category):
             else:
                 record.update({"アンケート": survey})
 
-            # 更新記憶體並寫入資料庫
             st.session_state.data = [r for r in st.session_state.data if not (r["date"] == record["date"] and r["name"] == name and r["type"] == category)]
             st.session_state.data.append(record)
             insert_or_update_record(record)
@@ -79,30 +71,25 @@ with tab1:
     record_form("APP推薦紀錄", "app")
     st.divider()
     st.subheader("APP月目標設定")
-    
-current_month = date.today().strftime("%Y-%m")
-app_target = get_target(current_month, "app")
-new_app_target = st.number_input("APP 月目標件数", 0, 1000, app_target)
-if new_app_target != app_target:
-    set_target(current_month, "app", int(new_app_target))
-    st.experimental_rerun()
-
+    current_month = date.today().strftime("%Y-%m")
+    app_target = get_target(current_month, "app")
+    new_app_target = st.number_input("APP 月目標件数", 0, 1000, app_target)
+    if new_app_target != app_target:
+        set_target(current_month, "app", int(new_app_target))
+        st.experimental_rerun()
 
 with tab2:
     record_form("アンケート紀錄", "survey")
     st.divider()
     st.subheader("アンケート月目標設定")
-    
-survey_target = get_target(current_month, "survey")
-new_survey_target = st.number_input("アンケート 月目標件数", 0, 1000, survey_target)
-if new_survey_target != survey_target:
-    set_target(current_month, "survey", int(new_survey_target))
-    st.experimental_rerun()
-
+    survey_target = get_target(current_month, "survey")
+    new_survey_target = st.number_input("アンケート 月目標件数", 0, 1000, survey_target)
+    if new_survey_target != survey_target:
+        set_target(current_month, "survey", int(new_survey_target))
+        st.experimental_rerun()
 
 def show_statistics(category, label):
     st.header(f"{label} 統計")
-
     df = pd.DataFrame([r for r in st.session_state.data if r["type"] == category])
     if df.empty:
         st.info("まだデータがありません")
@@ -115,10 +102,10 @@ def show_statistics(category, label):
 
     if category == "app":
         total = df[["新規", "既存", "LINE"]].sum().sum()
-        target = st.session_state.app_target
+        target = get_target(current_month, "app")
     else:
         total = df["アンケート"].sum()
-        target = st.session_state.survey_target
+        target = get_target(current_month, "survey")
 
     st.metric("今月累計件数", int(total))
     if target:
@@ -143,3 +130,6 @@ def show_statistics(category, label):
 
 show_statistics("app", "APP")
 show_statistics("survey", "アンケート")
+
+with tab3:
+    show_data_management()
