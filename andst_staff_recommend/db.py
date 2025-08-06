@@ -81,3 +81,39 @@ def load_all_records():
             "アンケート": row[7]
         })
     return result
+
+
+def init_target_table():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS targets (
+            month TEXT,
+            type TEXT,
+            target INTEGER,
+            PRIMARY KEY (month, type)
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+def set_target(month, category, value):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("""
+        INSERT INTO targets (month, type, target)
+        VALUES (?, ?, ?)
+        ON CONFLICT(month, type) DO UPDATE SET target=excluded.target
+    """, (month, category, value))
+    conn.commit()
+    conn.close()
+
+def get_target(month, category):
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT target FROM targets WHERE month=? AND type=?", (month, category))
+    row = c.fetchone()
+    conn.close()
+    return row[0] if row else 0
+
+
