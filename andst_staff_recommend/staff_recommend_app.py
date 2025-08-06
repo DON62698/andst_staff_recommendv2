@@ -4,10 +4,12 @@ from datetime import datetime, date
 import calendar
 import matplotlib.pyplot as plt
 from collections import defaultdict
-from db import init_db, insert_or_update_record, load_all_records
+from db import init_db, insert_or_update_record, load_all_records, get_target, set_target, init_target_table
 
 # 初始化 session state
-def init_session():
+def init_db()
+init_target_table()
+init_session():
     init_db()
     if "data" not in st.session_state:
         st.session_state.data = load_all_records()
@@ -18,11 +20,15 @@ def init_session():
     if "survey_target" not in st.session_state:
         st.session_state.survey_target = 0
 
+init_db()
+init_target_table()
 init_session()
 
 st.title("and st統計記録")
 
-tab1, tab2 = st.tabs(["APP推薦紀錄", "アンケート紀錄"])
+from data_management import show_data_management
+
+tab1, tab2, tab3 = st.tabs(["APP推薦紀錄", "アンケート紀錄", "データ管理"])
 
 def get_week_str(input_date):
     return f"{input_date.isocalendar().week}w"
@@ -75,13 +81,26 @@ with tab1:
     record_form("APP推薦紀錄", "app")
     st.divider()
     st.subheader("APP月目標設定")
-    st.session_state.app_target = st.number_input("APP 月目標件数", 0, 1000, st.session_state.app_target)
+    
+current_month = date.today().strftime("%Y-%m")
+app_target = get_target(current_month, "app")
+new_app_target = st.number_input("APP 月目標件数", 0, 1000, app_target)
+if new_app_target != app_target:
+    set_target(current_month, "app", int(new_app_target))
+    st.experimental_rerun()
+
 
 with tab2:
     record_form("アンケート紀錄", "survey")
     st.divider()
     st.subheader("アンケート月目標設定")
-    st.session_state.survey_target = st.number_input("アンケート 月目標件数", 0, 1000, st.session_state.survey_target)
+    
+survey_target = get_target(current_month, "survey")
+new_survey_target = st.number_input("アンケート 月目標件数", 0, 1000, survey_target)
+if new_survey_target != survey_target:
+    set_target(current_month, "survey", int(new_survey_target))
+    st.experimental_rerun()
+
 
 def show_statistics(category, label):
     st.header(f"{label} 統計")
@@ -126,3 +145,7 @@ def show_statistics(category, label):
 
 show_statistics("app", "APP")
 show_statistics("survey", "アンケート")
+
+with tab3:
+    show_data_management()
+
