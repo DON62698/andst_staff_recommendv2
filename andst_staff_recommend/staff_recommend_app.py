@@ -7,7 +7,7 @@ from collections import defaultdict
 from db import init_db, insert_or_update_record, load_all_records, get_target, set_target, init_target_table
 
 # 初始化 session state
-def init_db():
+def init_db()
 init_target_table()
 init_session():
     init_db()
@@ -26,9 +26,7 @@ init_session()
 
 st.title("and st統計記録")
 
-from data_management import show_data_management
-
-tab1, tab2, tab3 = st.tabs(["APP推薦紀錄", "アンケート紀錄", "データ管理"])
+tab1, tab2 = st.tabs(["APP推薦紀錄", "アンケート紀錄"])
 
 def get_week_str(input_date):
     return f"{input_date.isocalendar().week}w"
@@ -145,6 +143,3 @@ def show_statistics(category, label):
 
 show_statistics("app", "APP")
 show_statistics("survey", "アンケート")
-
-with tab3:
-    show_data_management()
