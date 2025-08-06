@@ -148,4 +148,3 @@ show_statistics("survey", "アンケート")
 
 with tab3:
     show_data_management()
-

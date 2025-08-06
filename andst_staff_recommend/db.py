@@ -115,5 +115,3 @@ def get_target(month, category):
     row = c.fetchone()
     conn.close()
     return row[0] if row else 0
-
-
