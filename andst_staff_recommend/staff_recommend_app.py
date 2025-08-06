@@ -7,7 +7,7 @@ from collections import defaultdict
 from db import init_db, insert_or_update_record, load_all_records, get_target, set_target, init_target_table
 
 # 初始化 session state
-def init_db()
+def init_db():
 init_target_table()
 init_session():
     init_db()
