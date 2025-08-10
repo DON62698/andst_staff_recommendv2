@@ -4,7 +4,8 @@ from datetime import datetime, date
 import calendar
 import matplotlib.pyplot as plt
 from collections import defaultdict
-from db import init_db, insert_or_update_record, load_all_records, get_target, set_target, init_target_table
+# from db import init_db, insert_or_update_record, load_all_records, get_target, set_target, init_target_table
+from db_gsheets import init_db, insert_or_update_record, load_all_records, get_target, set_target, init_target_table
 from data_management import show_data_management
 
 def init_session():
