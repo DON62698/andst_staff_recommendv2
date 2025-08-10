@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
-from db import load_all_records, insert_or_update_record, init_db
-import sqlite3
+from db_gsheets import load_all_records, delete_record
 
 def show_data_management():
     st.header("📋 データ管理")
@@ -12,7 +11,8 @@ def show_data_management():
         return
 
     df = pd.DataFrame(records)
-    df["date"] = pd.to_datetime(df["date"])
+    # 確保 date 可轉為日期排序
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
     df.sort_values(by=["date", "name", "type"], ascending=[False, True, True], inplace=True)
 
     with st.expander("🔍 データを表示・検索", expanded=True):
@@ -24,7 +24,8 @@ def show_data_management():
 
         filtered_df = df.copy()
         if name_filter:
-            filtered_df = filtered_df[filtered_df["name"].str.contains(name_filter)]
+            # 避免 NaN 造成錯誤、並改為部分一致（不使用正則）
+            filtered_df = filtered_df[filtered_df["name"].astype(str).str.contains(name_filter, na=False, regex=False)]
         if type_filter != "すべて":
             filtered_df = filtered_df[filtered_df["type"] == type_filter]
 
@@ -36,21 +37,16 @@ def show_data_management():
         delete_name = st.text_input("名前（削除対象）")
         delete_type = st.selectbox("タイプ（削除対象）", options=["app", "survey"])
 
-        if st.button("⚠️ このデータを削除する"):
-            deleted = delete_record(delete_date.strftime("%Y-%m-%d"), delete_name, delete_type)
-            if deleted:
-                st.success("データが削除されました。ページを更新してください。")
+        if st.button("⚠️ このデータを削除する", type="primary"):
+            if not delete_name:
+                st.warning("名前を入力してください。")
             else:
-                st.warning("該当するデータが見つかりませんでした。")
-
-def delete_record(date_str, name, category):
-    conn = sqlite3.connect("recommend.db")
-    cursor = conn.cursor()
-    cursor.execute(
-        "DELETE FROM records WHERE date=? AND name=? AND type=?",
-        (date_str, name, category)
-    )
-    deleted = cursor.rowcount
-    conn.commit()
-    conn.close()
-    return deleted > 0
+                ok = delete_record(delete_date.strftime("%Y-%m-%d"), delete_name, delete_type)
+                if ok:
+                    st.success("データが削除されました。画面を更新します。")
+                    try:
+                        st.rerun()  # Streamlit 1.30+
+                    except Exception:
+                        st.experimental_rerun()  # 旧版互換
+                else:
+                    st.warning("該当するデータが見つかりませんでした。")
