@@ -1,9 +1,9 @@
 import streamlit as st
 import pandas as pd
-from datetime import date
+from datetime import date, datetime
 import matplotlib.pyplot as plt
 
-# ✅ Use the Google Sheets backend
+# ✅ Google Sheets 後端
 from db_gsheets import (
     init_db,
     init_target_table,
@@ -12,197 +12,261 @@ from db_gsheets import (
     get_target,
     set_target,
 )
+
+# ✅ 資料管理頁
 from data_management import show_data_management
+
+
+# -----------------------------
+# Cache / 初始化（避免每次互動都狂打 API）
+# -----------------------------
 @st.cache_resource
 def _init_once():
+    """只在第一次執行時做表單初始化與檢查。"""
     init_db()
     init_target_table()
     return True
 
+
 @st.cache_data(ttl=60)
 def load_all_records_cached():
+    """快取 60 秒，降低 API 次數。"""
     return load_all_records()
+
 
 @st.cache_data(ttl=60)
 def get_target_safe(month: str, category: str) -> int:
+    """讀取目標值（失敗回 0，不讓整個 app 掛掉）。"""
     try:
         return get_target(month, category)
     except Exception:
         return 0
 
 
-# -----------------------
-# Session initialization
-# -----------------------
+# -----------------------------
+# Session 初始化
+# -----------------------------
 def init_session():
     if "data" not in st.session_state:
-        # db_gsheets returns rows like: {date, week, name, type, count}
-        st.session_state.data = load_all_records()
+        st.session_state.data = load_all_records_cached()
     if "names" not in st.session_state:
-        st.session_state.names = set([r.get("name", "") for r in st.session_state.data if r.get("name")])
-
-#  只初始化一次（之後的互動 rerun 不會再打 API）
-@st.cache_resource
-def _init_once():
-    init_db()
-    init_target_table()
-    return True
-
-_init_once()       # 取代原本的 init_db()/init_target_table()
-init_session()     # 保留；它在你的程式邏輯裡做 UI 用的 session 初始化
+        st.session_state.names = set(
+            [r.get("name", "") for r in st.session_state.data if r.get("name")]
+        )
+    if "app_target" not in st.session_state:
+        st.session_state.app_target = 0
+    if "survey_target" not in st.session_state:
+        st.session_state.survey_target = 0
 
 
-st.title("and st統計記録")
+# ✅ 只做一次外部初始化
+_init_once()
+# ✅ 每次 rerun 都整理好 UI 狀態
+init_session()
+
+
+# -----------------------------
+# 共用工具
+# -----------------------------
+def ymd(d: date) -> str:
+    return d.strftime("%Y-%m-%d")
+
+
+def current_year_month() -> str:
+    return date.today().strftime("%Y-%m")
+
+
+def ensure_dataframe(records) -> pd.DataFrame:
+    df = pd.DataFrame(records or [])
+    for col in ["date", "name", "type", "count"]:
+        if col not in df.columns:
+            df[col] = None
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
+    return df
+
+
+def month_filter(df: pd.DataFrame, ym: str) -> pd.DataFrame:
+    if "date" not in df.columns:
+        return df.iloc[0:0]
+    return df[(df["date"].dt.strftime("%Y-%m") == ym)]
+
+
+# -----------------------------
+# 版頭
+# -----------------------------
+st.title("and st 統計記録")
 
 tab1, tab2, tab3 = st.tabs(["APP推薦紀錄", "アンケート紀錄", "データ管理"])
 
-def get_week_str(d: date) -> str:
-    return f"{d.isocalendar().week}w"
 
-# -----------------------
-# Record form
-# -----------------------
-def record_form(label: str, category: str):
-    st.subheader(label)
-    with st.form(f"{category}_form"):
-        col1, col2 = st.columns(2)
-        with col1:
-            selected_date = st.date_input("日付", value=date.today(), key=f"{category}_date")
-        with col2:
-            if st.session_state.names:
-                name = st.selectbox("名前を選択", options=sorted(st.session_state.names), key=f"{category}_name_select")
-            else:
-                name = ""
-            name_input = st.text_input("新しい名前を入力", key=f"{category}_name_input")
+# -----------------------------
+# 統計區塊
+# -----------------------------
+def show_statistics(category: str, label: str):
+    """
+    category: "app" 或 "survey"
+    label: 顯示標題
+    """
+    df_all = ensure_dataframe(st.session_state.data)
+    ym = current_year_month()
 
-        if name_input:
-            name = name_input.strip()
-            if name:
-                st.session_state.names.add(name)
+    # 目標值（有 cache）
+    if category == "app":
+        target = get_target_safe(ym, "app")
+    else:
+        target = get_target_safe(ym, "survey")
 
-        # Inputs
-        if category == "app":
-            new = st.number_input("新規", 0, 100, 0, key=f"{category}_new")
-            exist = st.number_input("既存", 0, 100, 0, key=f"{category}_exist")
-            line = st.number_input("LINE", 0, 100, 0, key=f"{category}_line")
+    # 本月資料
+    df_m = month_filter(df_all, ym).copy()
+
+    # 類型切分
+    if category == "app":
+        df_m_app = df_m[df_m["type"].isin(["new", "exist"])]
+        df_m_line = df_m[df_m["type"] == "line"]
+        total_app = int(df_m_app["count"].sum())
+        total_line = int(df_m_line["count"].sum())
+        total_for_target = total_app + total_line  # 你的需求若只算 App，可改成 total_app
+    else:
+        df_m_survey = df_m[df_m["type"] == "survey"]
+        total_for_target = int(df_m_survey["count"].sum())
+
+    st.subheader(f"{label}（{ym}）")
+
+    # 目標設定/顯示
+    colA, colB = st.columns([2, 1])
+    with colA:
+        current_total = total_for_target
+        st.write(f"今月累計：**{current_total}** 件")
+        if target > 0:
+            ratio = min(1.0, current_total / max(1, target))
+            st.progress(ratio, text=f"目標 {target} 件・達成率 {ratio*100:.1f}%")
         else:
-            survey = st.number_input("アンケート件数", 0, 100, 0, key=f"{category}_survey")
+            st.info("目標未設定")
+    with colB:
+        with st.popover("🎯 目標を設定/更新"):
+            new_target = st.number_input("今月目標", min_value=0, step=1, value=int(target))
+            if st.button(f"保存（{label}）"):
+                try:
+                    set_target(ym, "app" if category == "app" else "survey", int(new_target))
+                    st.success("保存しました。")
+                except Exception as e:
+                    st.error(f"保存失敗: {e}")
+
+    # 週別統計
+    if not df_m.empty:
+        df_m["week"] = df_m["date"].dt.isocalendar().week
+        if category == "app":
+            df_w = df_m[df_m["type"].isin(["new", "exist", "line"])]
+        else:
+            df_w = df_m[df_m["type"] == "survey"]
+        weekly = df_w.groupby("week")["count"].sum().reset_index().sort_values("week")
+        st.write("**週別合計**（w）：")
+        st.dataframe(weekly.rename(columns={"week": "w"}), use_container_width=True)
+
+        # 構成比（App vs LINE）
+        if category == "app":
+            app_total = int(df_m[df_m["type"].isin(["new", "exist"])]["count"].sum())
+            line_total = int(df_m[df_m["type"] == "line"]["count"].sum())
+            if app_total + line_total > 0:
+                st.subheader("構成比 (App vs LINE)")
+                plt.figure()
+                plt.pie([app_total, line_total], labels=["App", "LINE"], autopct="%1.1f%%", startangle=90)
+                st.pyplot(plt.gcf())
+
+        # 員工別合計
+        st.write("**スタッフ別 合計**：")
+        if category == "app":
+            df_staff = df_w
+        else:
+            df_staff = df_w
+        staff_sum = (
+            df_staff.groupby("name")["count"].sum().reset_index().sort_values("count", ascending=False)
+        )
+        st.dataframe(staff_sum, use_container_width=True)
+    else:
+        st.info("今月のデータがありません。")
+
+
+# -----------------------------
+# 表單：APP 推薦紀錄
+# -----------------------------
+with tab1:
+    st.subheader("入力（App 推薦）")
+    with st.form("app_form", border=True):
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            d = st.date_input("日付", value=date.today())
+        with c2:
+            name = st.text_input("スタッフ名")
+        with c3:
+            # 下次可改成 selectbox 使用 st.session_state.names
+            add_to_names = st.checkbox("入力した名前を記憶", value=True)
+
+        coln1, coln2, coln3 = st.columns(3)
+        with coln1:
+            new_cnt = st.number_input("新規（件）", min_value=0, step=1, value=0)
+        with coln2:
+            exist_cnt = st.number_input("既存（件）", min_value=0, step=1, value=0)
+        with coln3:
+            line_cnt = st.number_input("LINE（件）", min_value=0, step=1, value=0)
 
         submitted = st.form_submit_button("保存")
         if submitted:
             if not name:
-                st.warning("名前を入力または選択してください。")
-                return
-
-            date_str = selected_date.strftime("%Y-%m-%d")
-            week = get_week_str(selected_date)
-
-            # Remove existing entries for the same (date, name) and affected types from session
-            def remove_from_session(types):
-                st.session_state.data = [
-                    r for r in st.session_state.data
-                    if not (r.get("date")==date_str and r.get("name")==name and r.get("type") in types)
-                ]
-
-            if category == "app":
-                # Types for app mode are separated into 3 rows: new/exist/line
-                affected = ["new", "exist", "line"]
-                remove_from_session(affected)
-
-                for t, cnt in [("new", new), ("exist", exist), ("line", line)]:
-                    insert_or_update_record(date_str, name, t, int(cnt))
-                    st.session_state.data.append({
-                        "date": date_str, "week": week, "name": name, "type": t, "count": int(cnt)
-                    })
+                st.warning("名前を入力してください。")
             else:
-                affected = ["survey"]
-                remove_from_session(affected)
-                insert_or_update_record(date_str, name, "survey", int(survey))
-                st.session_state.data.append({
-                    "date": date_str, "week": week, "name": name, "type": "survey", "count": int(survey)
-                })
+                try:
+                    if new_cnt > 0:
+                        insert_or_update_record(ymd(d), name, "new", int(new_cnt))
+                    if exist_cnt > 0:
+                        insert_or_update_record(ymd(d), name, "exist", int(exist_cnt))
+                    if line_cnt > 0:
+                        insert_or_update_record(ymd(d), name, "line", int(line_cnt))
+                    if add_to_names and name:
+                        st.session_state.names.add(name)
+                    # 重新讀取快取資料（不 rerun，減少 API）
+                    st.session_state.data = load_all_records_cached()
+                    st.success("保存しました。")
+                except Exception as e:
+                    st.error(f"保存失敗: {e}")
 
-            st.success("保存しました")
+    # 本月統計
+    show_statistics("app", "APP")
 
-# -----------------------
-# Tabs
-# -----------------------
-with tab1:
-    record_form("APP推薦紀錄", "app")
-    st.divider()
-    st.subheader("APP月目標設定")
-    current_month = date.today().strftime("%Y-%m")
-    app_target = get_target(current_month, "app")
-    new_app_target = st.number_input("APP 月目標件数", 0, 1000, app_target)
-    if new_app_target != app_target:
-        set_target(current_month, "app", int(new_app_target))
-        try:
-            st.rerun()
-        except Exception:
-            st.experimental_rerun()
 
+# -----------------------------
+# 表單：アンケート（問卷取得件數）
+# -----------------------------
 with tab2:
-    record_form("アンケート紀錄", "survey")
-    st.divider()
-    st.subheader("アンケート月目標設定")
-    current_month = date.today().strftime("%Y-%m")
-    survey_target = get_target(current_month, "survey")
-    new_survey_target = st.number_input("アンケート 月目標件数", 0, 1000, survey_target)
-    if new_survey_target != survey_target:
-        set_target(current_month, "survey", int(new_survey_target))
-        try:
-            st.rerun()
-        except Exception:
-            st.experimental_rerun()
+    st.subheader("入力（アンケート）")
+    with st.form("survey_form", border=True):
+        c1, c2 = st.columns(2)
+        with c1:
+            d2 = st.date_input("日付", value=date.today(), key="survey_date")
+        with c2:
+            name2 = st.text_input("スタッフ名", key="survey_name")
 
-# -----------------------
-# Statistics
-# -----------------------
-def show_statistics(category: str, label: str):
-    st.header(f"{label} 統計")
-    df = pd.DataFrame(st.session_state.data)
-    if df.empty:
-        st.info("まだデータがありません")
-        return
+        cnt = st.number_input("アンケート（件）", min_value=0, step=1, value=0)
+        submitted2 = st.form_submit_button("保存")
+        if submitted2:
+            if not name2:
+                st.warning("名前を入力してください。")
+            else:
+                try:
+                    if cnt > 0:
+                        insert_or_update_record(ymd(d2), name2, "survey", int(cnt))
+                    st.session_state.data = load_all_records_cached()
+                    st.success("保存しました。")
+                except Exception as e:
+                    st.error(f"保存失敗: {e}")
 
-    # date & month filter
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    df["month"] = df["date"].dt.strftime("%Y-%m")
-    current_month = date.today().strftime("%Y-%m")
-    df = df[df["month"] == current_month].copy()
+    # 本月統計
+    show_statistics("survey", "アンケート")
 
-    if category == "app":
-        df = df[df["type"].isin(["new", "exist", "line"])]
-        total = int(df["count"].sum())
-        target = get_target(current_month, "app")
-    else:
-        df = df[df["type"] == "survey"]
-        total = int(df["count"].sum())
-        target = get_target(current_month, "survey")
 
-    st.metric("今月累計件数", total)
-    if target:
-        st.metric("達成率", f"{(total / target * 100):.1f}%")
-
-    st.subheader("週別件数")
-    week_series = df.groupby("week")["count"].sum()
-    st.bar_chart(week_series)
-
-    st.subheader("スタッフ別合計")
-    staff_series = df.groupby("name")["count"].sum()
-    st.bar_chart(staff_series)
-
-    if category == "app":
-        st.subheader("構成比 (App vs LINE)")
-        app_total = int(df[df["type"].isin(["new", "exist"])]["count"].sum())
-        line_total = int(df[df["type"] == "line"]["count"].sum())
-        if app_total + line_total > 0:
-            plt.figure()
-            plt.pie([app_total, line_total], labels=["App", "LINE"], autopct="%1.1f%%", startangle=90)
-            st.pyplot(plt.gcf())
-
-show_statistics("app", "APP")
-show_statistics("survey", "アンケート")
-
+# -----------------------------
+# データ管理
+# -----------------------------
 with tab3:
     show_data_management()
