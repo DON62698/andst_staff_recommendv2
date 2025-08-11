@@ -85,6 +85,54 @@ def ensure_dataframe(records) -> pd.DataFrame:
     df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
     return df
 
+from datetime import date
+
+def _period_options(df: pd.DataFrame, mode: str):
+    """回傳指定模式(週/月/年)的可選清單與預設值。週以『目前年份』為範圍。"""
+    today = date.today()
+    if mode == "週（単週）":
+        if "date" not in df.columns or df["date"].isna().all():
+            weeks = []
+        else:
+            cur_year = today.year
+            weeks = sorted(
+                set(df[df["date"].dt.year == cur_year]["date"].dt.isocalendar().week.astype(int).tolist())
+            )
+        opts = [f"w{int(w)}" for w in weeks] or [f"w{today.isocalendar().week}"]
+        default = f"w{today.isocalendar().week}"
+        return opts, default
+    elif mode == "月（単月）":
+        if "date" not in df.columns or df["date"].isna().all():
+            opts = []
+        else:
+            opts = sorted(set(df["date"].dt.strftime("%Y-%m").dropna().tolist()))
+        default = today.strftime("%Y-%m")
+        return opts or [default], default
+    else:  # 年（単年）
+        if "date" not in df.columns or df["date"].isna().all():
+            years = []
+        else:
+            years = sorted(set(df["date"].dt.year.dropna().astype(int).tolist()))
+        default = str(today.year)
+        opts = [str(y) for y in years] or [default]
+        return opts, default
+#新增下拉
+def _filter_by_period(df: pd.DataFrame, mode: str, value: str) -> pd.DataFrame:
+    """依選擇的週/月/年回傳過濾後的資料。週以『目前年份』為範圍。"""
+    if "date" not in df.columns or df["date"].isna().all():
+        return df.iloc[0:0]
+    if mode == "週（単週）":
+        try:
+            w = int(value.lower().lstrip("w"))
+        except Exception:
+            return df.iloc[0:0]
+        cur_year = date.today().year
+        return df[(df["date"].dt.year == cur_year) & (df["date"].dt.isocalendar().week == w)]
+    elif mode == "月（単月）":
+        return df[df["date"].dt.strftime("%Y-%m") == value]
+    else:  # 年（単年）
+        return df[df["date"].dt.year.astype(str) == value]
+#到此
 
 def month_filter(df: pd.DataFrame, ym: str) -> pd.DataFrame:
     if "date" not in df.columns:
