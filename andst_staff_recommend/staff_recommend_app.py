@@ -24,9 +24,16 @@ def init_session():
     if "names" not in st.session_state:
         st.session_state.names = set([r.get("name", "") for r in st.session_state.data if r.get("name")])
 
-init_db()
-init_target_table()
-init_session()
+#  只初始化一次（之後的互動 rerun 不會再打 API）
+@st.cache_resource
+def _init_once():
+    init_db()
+    init_target_table()
+    return True
+
+_init_once()       # 取代原本的 init_db()/init_target_table()
+init_session()     # 保留；它在你的程式邏輯裡做 UI 用的 session 初始化
+
 
 st.title("and st統計記録")
 
