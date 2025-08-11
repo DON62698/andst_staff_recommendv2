@@ -2,6 +2,23 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 import matplotlib.pyplot as plt
+# 日文字型偵測（有就用；沒有就退回英文字）
+from matplotlib import font_manager, rcParams
+
+_JP_FONT_CANDIDATES = [
+    "Noto Sans CJK JP", "Noto Sans JP", "IPAGothic", "IPAexGothic",
+    "TakaoGothic", "Yu Gothic", "Hiragino Sans", "Meiryo", "MS Gothic",
+]
+
+_available_fonts = {f.name for f in font_manager.fontManager.ttflist}
+JP_FONT_READY = False
+for _name in _JP_FONT_CANDIDATES:
+    if _name in _available_fonts:
+        rcParams["font.family"] = _name
+        JP_FONT_READY = True
+        break
+rcParams["axes.unicode_minus"] = False  # 避免負號亂碼
+
 
 # ✅ Google Sheets 後端
 from db_gsheets import (
