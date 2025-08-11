@@ -160,31 +160,19 @@ def show_statistics(category: str, label: str):
     ym = current_year_month()
 
     # 目標值（有 cache）
-    if category == "app":
-        target = get_target_safe(ym, "app")
-    else:
-        target = get_target_safe(ym, "survey")
+    target = get_target_safe(ym, "app" if category == "app" else "survey")
 
-    # 本月資料
-    df_m = month_filter(df_all, ym).copy()
-
-    # 類型切分
+    # === 目標區塊（沿用原本） ===
     if category == "app":
-        df_m_app = df_m[df_m["type"].isin(["new", "exist"])]
-        df_m_line = df_m[df_m["type"] == "line"]
-        total_app = int(df_m_app["count"].sum())
-        total_line = int(df_m_line["count"].sum())
-        total_for_target = total_app + total_line  # 你的需求若只算 App，可改成 total_app
+        df_m_app = month_filter(df_all, ym)
+        current_total = int(df_m_app[df_m_app["type"].isin(["new", "exist", "line"])]["count"].sum())
     else:
-        df_m_survey = df_m[df_m["type"] == "survey"]
-        total_for_target = int(df_m_survey["count"].sum())
+        df_m = month_filter(df_all, ym)
+        current_total = int(df_m[df_m["type"] == "survey"]["count"].sum())
 
     st.subheader(f"{label}（{ym}）")
-
-    # 目標設定/顯示
     colA, colB = st.columns([2, 1])
     with colA:
-        current_total = total_for_target
         st.write(f"今月累計：**{current_total}** 件")
         if target > 0:
             ratio = min(1.0, current_total / max(1, target))
@@ -201,26 +189,98 @@ def show_statistics(category: str, label: str):
                 except Exception as e:
                     st.error(f"保存失敗: {e}")
 
-    # 週別統計
-    if not df_m.empty:
-        df_m["week"] = df_m["date"].dt.isocalendar().week
+    # === 週別合計（保持原有邏輯，可留） ===
+    df_m_all = month_filter(df_all, ym).copy()
+    if not df_m_all.empty:
+        df_m_all["week"] = df_m_all["date"].dt.isocalendar().week
         if category == "app":
-            df_w = df_m[df_m["type"].isin(["new", "exist", "line"])]
+            df_w = df_m_all[df_m_all["type"].isin(["new", "exist", "line"])]
         else:
-            df_w = df_m[df_m["type"] == "survey"]
+            df_w = df_m_all[df_m_all["type"] == "survey"]
         weekly = df_w.groupby("week")["count"].sum().reset_index().sort_values("week")
         st.write("**週別合計**（w）：")
         st.dataframe(weekly.rename(columns={"week": "w"}), use_container_width=True)
+    else:
+        st.info("今月のデータがありません。")
 
-        # 構成比（App vs LINE）
-        if category == "app":
-            app_total = int(df_m[df_m["type"].isin(["new", "exist"])]["count"].sum())
-            line_total = int(df_m[df_m["type"] == "line"]["count"].sum())
-            if app_total + line_total > 0:
-                st.subheader("構成比 (App vs LINE)")
-                plt.figure()
-                plt.pie([app_total, line_total], labels=["App", "LINE"], autopct="%1.1f%%", startangle=90)
-                st.pyplot(plt.gcf())
+    # === 構成比（新規・既存・LINE）— 可選：單週/單月/單年 ===
+    if category == "app":
+        st.subheader("構成比（新規・既存・LINE）")
+        colp1, colp2 = st.columns(2)
+        with colp1:
+            ptype = st.selectbox(
+                "対象期間",
+                ["週（単週）", "月（単月）", "年（単年）"],
+                key=f"comp_period_type_{category}",
+            )
+        with colp2:
+            opts, default = _period_options(df_all, ptype)
+            sel = st.selectbox(
+                "表示する期間",
+                options=opts,
+                index=(opts.index(default) if default in opts else 0),
+                key=f"comp_period_value_{category}",
+            )
+
+        df_comp_base = df_all[df_all["type"].isin(["new", "exist", "line"])].copy()
+        df_comp = _filter_by_period(df_comp_base, ptype, sel)
+
+        new_sum = int(df_comp[df_comp["type"] == "new"]["count"].sum())
+        exist_sum = int(df_comp[df_comp["type"] == "exist"]["count"].sum())
+        line_sum = int(df_comp[df_comp["type"] == "line"]["count"].sum())
+        total = new_sum + exist_sum + line_sum
+
+        if total > 0:
+            import matplotlib.pyplot as plt
+            st.caption(f"表示中：{sel}")
+            plt.figure()
+            plt.pie(
+                [new_sum, exist_sum, line_sum],
+                labels=["新規", "既存", "LINE"],
+                autopct="%1.1f%%",
+                startangle=90,
+            )
+            st.pyplot(plt.gcf())
+        else:
+            st.info("対象データがありません。")
+
+    # === スタッフ別 合計 — 預設『當週』，同樣可選 週/月/年 ===
+    st.subheader("スタッフ別 合計")
+    cols = st.columns(2)
+    with cols[0]:
+        ptype2 = st.selectbox(
+            "対象期間",
+            ["週（単週）", "月（単月）", "年（単年）"],
+            key=f"staff_period_type_{category}",
+            index=0,  # 預設顯示當週
+        )
+    with cols[1]:
+        opts2, default2 = _period_options(df_all, ptype2)
+        # 預設當週
+        sel2 = st.selectbox(
+            "表示する期間",
+            options=opts2,
+            index=(opts2.index(default2) if default2 in opts2 else 0),
+            key=f"staff_period_value_{category}",
+        )
+    st.caption(f"（{sel2}）")  # 顯示副標，例如 w32
+
+    if category == "app":
+        df_staff_base = df_all[df_all["type"].isin(["new", "exist", "line"])].copy()
+    else:
+        df_staff_base = df_all[df_all["type"] == "survey"].copy()
+
+    df_staff = _filter_by_period(df_staff_base, ptype2, sel2)
+    if df_staff.empty:
+        st.info("対象データがありません。")
+    else:
+        staff_sum = (
+            df_staff.groupby("name")["count"].sum()
+            .reset_index()
+            .sort_values("count", ascending=False)
+        )
+        st.dataframe(staff_sum, use_container_width=True)
+
 
         # 員工別合計
         st.write("**スタッフ別 合計**：")
