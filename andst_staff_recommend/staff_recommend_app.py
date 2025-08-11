@@ -13,6 +13,23 @@ from db_gsheets import (
     set_target,
 )
 from data_management import show_data_management
+@st.cache_resource
+def _init_once():
+    init_db()
+    init_target_table()
+    return True
+
+@st.cache_data(ttl=60)
+def load_all_records_cached():
+    return load_all_records()
+
+@st.cache_data(ttl=60)
+def get_target_safe(month: str, category: str) -> int:
+    try:
+        return get_target(month, category)
+    except Exception:
+        return 0
+
 
 # -----------------------
 # Session initialization
