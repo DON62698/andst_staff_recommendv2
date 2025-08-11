@@ -14,18 +14,22 @@ from db_gsheets import (
 )
 from data_management import show_data_management
 
+
+
+@st.cache_data(ttl=60)
+def load_all_records_cached():
+    return load_all_records()
 # -----------------------
 # Session initialization
 # -----------------------
 def init_session():
     if "data" not in st.session_state:
         # db_gsheets returns rows like: {date, week, name, type, count}
-        st.session_state.data = load_all_records()
+        st.session_state.data = load_all_records_cached()
     if "names" not in st.session_state:
         st.session_state.names = set([r.get("name", "") for r in st.session_state.data if r.get("name")])
 
-init_db()
-init_target_table()
+_init_once()
 init_session()
 
 st.title("and st統計記録")
