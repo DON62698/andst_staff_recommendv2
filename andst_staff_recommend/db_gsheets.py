@@ -257,4 +257,125 @@ def _ensure_worksheet(sh, name: str, header):
     except Exception as e:
         raise RuntimeError(f"_ensure_worksheet('{name}') failed: {e}")
 # ==== End safe override ====
+# ==== Cached Google Sheets client & workbook (assistant patch) ====
+def _get_sheet_url():
+    """Resolve sheet URL from Streamlit secrets, env var, or fallback default."""
+    if st is not None:
+        try:
+            return st.secrets["sheets"]["url"]
+        except Exception:
+            pass
+    return os.environ.get("SHEET_URL", SHEET_URL_DEFAULT)
+
+if st is not None:
+    @st.cache_resource
+    def _client_and_book():
+        import json
+        scope = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds_dict = dict(st.secrets["gcp_service_account"])
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        sh = client.open_by_url(_get_sheet_url())
+        return client, sh
+else:
+    def _client_and_book():
+        import json
+        scope = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+        if not creds_json:
+            raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON env var for service account credentials.")
+        creds_dict = json.loads(creds_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        sh = client.open_by_url(_get_sheet_url())
+        return client, sh
+
+def _open_workbook():
+    """Return cached Spreadsheet handle (overrides any previous definition)."""
+    return _client_and_book()[1]
+# ==== End cached block ====
+
+
+# ==== Safe override for _ensure_worksheet (assistant patch) ====
+from gspread.exceptions import WorksheetNotFound, APIError as _GSpreadAPIError
+
+def _ensure_worksheet(sh, name: str, header):
+    """Return a worksheet with the given header ensured.
+    - Creates the sheet if missing.
+    - If reading header fails due to APIError, proceeds to set header.
+    """
+    try:
+        try:
+            ws = sh.worksheet(name)
+        except WorksheetNotFound:
+            ws = sh.add_worksheet(title=name, rows=1000, cols=max(26, len(header)))
+
+        # Try to read the first row; if it fails, treat as empty
+        try:
+            first_row = ws.row_values(1)
+        except _GSpreadAPIError:
+            first_row = []
+
+        normalized = [str(c).strip() for c in (first_row or [])]
+        if normalized != header:
+            end_col = chr(64 + len(header))  # 1->A, 2->B, ...
+            ws.update(f"A1:{end_col}1", [header])
+        return ws
+    except Exception as e:
+        raise RuntimeError(f"_ensure_worksheet('{name}') failed: {e}")
+# ==== End safe override ====
+
+
+# ==== Robust get_target (assistant patch) ====
+def get_target(month: str, category: str) -> int:
+    """
+    Robustly read a single target value.
+    - Prefer small-range reads over get_all_records() to reduce API load.
+    - Fallbacks gracefully and returns 0 on non-critical errors.
+    """
+    sh = _open_workbook()
+    ws = _ensure_worksheet(sh, "targets", ["month", "type", "target"])
+    # Fast path
+    try:
+        rows = ws.get_all_records()
+        for r in rows:
+            if r.get("month") == month and r.get("type") == category:
+                try:
+                    return int(r.get("target") or 0)
+                except Exception:
+                    return 0
+    except Exception:
+        pass
+
+    # Fallback: bounded range
+    try:
+        data = ws.get("A1:C1000") or []
+    except Exception:
+        return 0
+
+    if not data:
+        return 0
+
+    header = [str(x).strip().lower() for x in (data[0] if data else [])]
+    def _idx(name, default):
+        return header.index(name) if name in header else default
+    im, it, iv = _idx("month", 0), _idx("type", 1), _idx("target", 2)
+
+    for row in data[1:]:
+        if len(row) <= max(im, it, iv):
+            continue
+        if str(row[im]) == month and str(row[it]) == category:
+            try:
+                return int(row[iv])
+            except Exception:
+                return 0
+    return 0
+# ==== End robust get_target ====
+
 
