@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import date, datetime
+from datetime import date
 import matplotlib.pyplot as plt
 
 # ✅ Google Sheets 後端
@@ -44,28 +44,6 @@ def get_target_safe(month: str, category: str) -> int:
 
 
 # -----------------------------
-# Session 初始化
-# -----------------------------
-def init_session():
-    if "data" not in st.session_state:
-        st.session_state.data = load_all_records_cached()
-    if "names" not in st.session_state:
-        st.session_state.names = set(
-            [r.get("name", "") for r in st.session_state.data if r.get("name")]
-        )
-    if "app_target" not in st.session_state:
-        st.session_state.app_target = 0
-    if "survey_target" not in st.session_state:
-        st.session_state.survey_target = 0
-
-
-# ✅ 只做一次外部初始化
-_init_once()
-# ✅ 每次 rerun 都整理好 UI 狀態
-init_session()
-
-
-# -----------------------------
 # 共用工具
 # -----------------------------
 def ymd(d: date) -> str:
@@ -85,7 +63,17 @@ def ensure_dataframe(records) -> pd.DataFrame:
     df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
     return df
 
-from datetime import date
+
+def month_filter(df: pd.DataFrame, ym: str) -> pd.DataFrame:
+    if "date" not in df.columns:
+        return df.iloc[0:0]
+    return df[(df["date"].dt.strftime("%Y-%m") == ym)]
+
+
+def names_from_records(records) -> list[str]:
+    """從歷史紀錄萃取名字（持久、跨重啟仍在）。"""
+    return sorted({(r.get("name") or "").strip() for r in (records or []) if r.get("name")})
+
 
 def _period_options(df: pd.DataFrame, mode: str):
     """回傳指定模式(週/月/年)的可選清單與預設值。週以『目前年份』為範圍。"""
@@ -116,7 +104,8 @@ def _period_options(df: pd.DataFrame, mode: str):
         default = str(today.year)
         opts = [str(y) for y in years] or [default]
         return opts, default
-#新增下拉
+
+
 def _filter_by_period(df: pd.DataFrame, mode: str, value: str) -> pd.DataFrame:
     """依選擇的週/月/年回傳過濾後的資料。週以『目前年份』為範圍。"""
     if "date" not in df.columns or df["date"].isna().all():
@@ -132,12 +121,26 @@ def _filter_by_period(df: pd.DataFrame, mode: str, value: str) -> pd.DataFrame:
         return df[df["date"].dt.strftime("%Y-%m") == value]
     else:  # 年（単年）
         return df[df["date"].dt.year.astype(str) == value]
-#到此
 
-def month_filter(df: pd.DataFrame, ym: str) -> pd.DataFrame:
-    if "date" not in df.columns:
-        return df.iloc[0:0]
-    return df[(df["date"].dt.strftime("%Y-%m") == ym)]
+
+# -----------------------------
+# Session 初始化
+# -----------------------------
+def init_session():
+    if "data" not in st.session_state:
+        st.session_state.data = load_all_records_cached()
+    if "names" not in st.session_state:
+        st.session_state.names = names_from_records(st.session_state.data)
+    if "app_target" not in st.session_state:
+        st.session_state.app_target = 0
+    if "survey_target" not in st.session_state:
+        st.session_state.survey_target = 0
+
+
+# ✅ 只做一次外部初始化
+_init_once()
+# ✅ 每次 rerun 都整理好 UI 狀態
+init_session()
 
 
 # -----------------------------
@@ -149,7 +152,7 @@ tab1, tab2, tab3 = st.tabs(["APP推薦紀錄", "アンケート紀錄", "デー�
 
 
 # -----------------------------
-# 統計區塊
+# 統計區塊（含 構成比 + スタッフ別 合計 的新控制）
 # -----------------------------
 def show_statistics(category: str, label: str):
     """
@@ -162,7 +165,7 @@ def show_statistics(category: str, label: str):
     # 目標值（有 cache）
     target = get_target_safe(ym, "app" if category == "app" else "survey")
 
-    # === 目標區塊（沿用原本） ===
+    # === 目標區塊（沿用月度目標） ===
     if category == "app":
         df_m_app = month_filter(df_all, ym)
         current_total = int(df_m_app[df_m_app["type"].isin(["new", "exist", "line"])]["count"].sum())
@@ -185,11 +188,13 @@ def show_statistics(category: str, label: str):
             if st.button(f"保存（{label}）"):
                 try:
                     set_target(ym, "app" if category == "app" else "survey", int(new_target))
+                    # 目標值快取刷新
+                    get_target_safe.clear()
                     st.success("保存しました。")
                 except Exception as e:
                     st.error(f"保存失敗: {e}")
 
-    # === 週別合計（保持原有邏輯，可留） ===
+    # === 週別合計（保留月內的週統計表） ===
     df_m_all = month_filter(df_all, ym).copy()
     if not df_m_all.empty:
         df_m_all["week"] = df_m_all["date"].dt.isocalendar().week
@@ -215,10 +220,11 @@ def show_statistics(category: str, label: str):
             )
         with colp2:
             opts, default = _period_options(df_all, ptype)
+            idx = opts.index(default) if default in opts else 0
             sel = st.selectbox(
                 "表示する期間",
                 options=opts,
-                index=(opts.index(default) if default in opts else 0),
+                index=idx if len(opts) > 0 else 0,
                 key=f"comp_period_value_{category}",
             )
 
@@ -231,7 +237,6 @@ def show_statistics(category: str, label: str):
         total = new_sum + exist_sum + line_sum
 
         if total > 0:
-            import matplotlib.pyplot as plt
             st.caption(f"表示中：{sel}")
             plt.figure()
             plt.pie(
@@ -256,11 +261,11 @@ def show_statistics(category: str, label: str):
         )
     with cols[1]:
         opts2, default2 = _period_options(df_all, ptype2)
-        # 預設當週
+        idx2 = opts2.index(default2) if default2 in opts2 else 0
         sel2 = st.selectbox(
             "表示する期間",
             options=opts2,
-            index=(opts2.index(default2) if default2 in opts2 else 0),
+            index=idx2 if len(opts2) > 0 else 0,
             key=f"staff_period_value_{category}",
         )
     st.caption(f"（{sel2}）")  # 顯示副標，例如 w32
@@ -282,34 +287,35 @@ def show_statistics(category: str, label: str):
         st.dataframe(staff_sum, use_container_width=True)
 
 
-        # 員工別合計
-        st.write("**スタッフ別 合計**：")
-        if category == "app":
-            df_staff = df_w
-        else:
-            df_staff = df_w
-        staff_sum = (
-            df_staff.groupby("name")["count"].sum().reset_index().sort_values("count", ascending=False)
-        )
-        st.dataframe(staff_sum, use_container_width=True)
-    else:
-        st.info("今月のデータがありません。")
-
-
 # -----------------------------
 # 表單：APP 推薦紀錄
 # -----------------------------
 with tab1:
     st.subheader("入力（App 推薦）")
-    with st.form("app_form", border=True):
+    with st.form("app_form"):
         c1, c2, c3 = st.columns(3)
         with c1:
             d = st.date_input("日付", value=date.today())
         with c2:
-            name = st.text_input("スタッフ名")
+            # 名字輸入：選擇 / 新規輸入
+            existing_names = st.session_state.names
+            default_mode = "選択" if existing_names else "新規入力"
+            name_mode = st.radio(
+                "名前の入力方法", ["選択", "新規入力"],
+                horizontal=True, key="app_name_mode",
+                index=(0 if default_mode == "選択" else 1)
+            )
+            if name_mode == "選択" and existing_names:
+                name = st.selectbox(
+                    "スタッフ名（選択）",
+                    options=existing_names,
+                    index=0,
+                    key="app_name_select"
+                )
+            else:
+                name = st.text_input("スタッフ名（新規入力）", key="app_name_text")
         with c3:
-            # 下次可改成 selectbox 使用 st.session_state.names
-            add_to_names = st.checkbox("入力した名前を記憶", value=True)
+            pass
 
         coln1, coln2, coln3 = st.columns(3)
         with coln1:
@@ -321,6 +327,7 @@ with tab1:
 
         submitted = st.form_submit_button("保存")
         if submitted:
+            name = (name or "").strip()
             if not name:
                 st.warning("名前を入力してください。")
             else:
@@ -331,10 +338,10 @@ with tab1:
                         insert_or_update_record(ymd(d), name, "exist", int(exist_cnt))
                     if line_cnt > 0:
                         insert_or_update_record(ymd(d), name, "line", int(line_cnt))
-                    if add_to_names and name:
-                        st.session_state.names.add(name)
-                    # 重新讀取快取資料（不 rerun，減少 API）
+                    # 重新抓資料並更新名字清單（清 cache 再讀，避免舊資料）
+                    load_all_records_cached.clear()
                     st.session_state.data = load_all_records_cached()
+                    st.session_state.names = names_from_records(st.session_state.data)
                     st.success("保存しました。")
                 except Exception as e:
                     st.error(f"保存失敗: {e}")
@@ -348,23 +355,43 @@ with tab1:
 # -----------------------------
 with tab2:
     st.subheader("入力（アンケート）")
-    with st.form("survey_form", border=True):
+    with st.form("survey_form"):
         c1, c2 = st.columns(2)
         with c1:
             d2 = st.date_input("日付", value=date.today(), key="survey_date")
         with c2:
-            name2 = st.text_input("スタッフ名", key="survey_name")
+            # 名字輸入：選擇 / 新規輸入
+            existing_names2 = st.session_state.names
+            default_mode2 = "選択" if existing_names2 else "新規入力"
+            name_mode2 = st.radio(
+                "名前の入力方法", ["選択", "新規入力"],
+                horizontal=True, key="survey_name_mode",
+                index=(0 if default_mode2 == "選択" else 1)
+            )
+            if name_mode2 == "選択" and existing_names2:
+                name2 = st.selectbox(
+                    "スタッフ名（選択）",
+                    options=existing_names2,
+                    index=0,
+                    key="survey_name_select"
+                )
+            else:
+                name2 = st.text_input("スタッフ名（新規入力）", key="survey_name_text")
 
         cnt = st.number_input("アンケート（件）", min_value=0, step=1, value=0)
         submitted2 = st.form_submit_button("保存")
         if submitted2:
+            name2 = (name2 or "").strip()
             if not name2:
                 st.warning("名前を入力してください。")
             else:
                 try:
                     if cnt > 0:
                         insert_or_update_record(ymd(d2), name2, "survey", int(cnt))
+                    # 重新抓資料並更新名字清單（清 cache 再讀，避免舊資料）
+                    load_all_records_cached.clear()
                     st.session_state.data = load_all_records_cached()
+                    st.session_state.names = names_from_records(st.session_state.data)
                     st.success("保存しました。")
                 except Exception as e:
                     st.error(f"保存失敗: {e}")
