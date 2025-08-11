@@ -3,14 +3,12 @@ import pandas as pd
 from datetime import date
 import matplotlib.pyplot as plt
 
-# 日文字型偵測（有就用；沒有就退回英文字）
+# --- 日文字型偵測，避免圖表亂碼 ---
 from matplotlib import font_manager, rcParams
-
 _JP_FONT_CANDIDATES = [
     "Noto Sans CJK JP", "Noto Sans JP", "IPAGothic", "IPAexGothic",
     "TakaoGothic", "Yu Gothic", "Hiragino Sans", "Meiryo", "MS Gothic",
 ]
-
 _available_fonts = {f.name for f in font_manager.fontManager.ttflist}
 JP_FONT_READY = False
 for _name in _JP_FONT_CANDIDATES:
@@ -18,8 +16,7 @@ for _name in _JP_FONT_CANDIDATES:
         rcParams["font.family"] = _name
         JP_FONT_READY = True
         break
-rcParams["axes.unicode_minus"] = False  # 避免負號亂碼
-
+rcParams["axes.unicode_minus"] = False
 
 # ✅ Google Sheets 後端
 from db_gsheets import (
@@ -257,9 +254,10 @@ def show_statistics(category: str, label: str):
         if total > 0:
             st.caption(f"表示中：{sel}")
             plt.figure()
+            pie_labels = ["新規", "既存", "LINE"] if JP_FONT_READY else ["new", "exist", "LINE"]
             plt.pie(
                 [new_sum, exist_sum, line_sum],
-                labels=["新規", "既存", "LINE"],
+                labels=pie_labels,
                 autopct="%1.1f%%",
                 startangle=90,
             )
@@ -311,11 +309,9 @@ def show_statistics(category: str, label: str):
 with tab1:
     st.subheader("入力（App 推薦）")
     with st.form("app_form"):
-        c1, c2, c3 = st.columns(3)
+        # 名字選單置左、日期改放中間
+        c1, c2, c3 = st.columns([2, 2, 1])
         with c1:
-            d = st.date_input("日付", value=date.today())
-        with c2:
-            # 名字輸入：選擇 / 新規輸入
             existing_names = st.session_state.names
             default_mode = "選択" if existing_names else "新規入力"
             name_mode = st.radio(
@@ -332,6 +328,8 @@ with tab1:
                 )
             else:
                 name = st.text_input("スタッフ名（新規入力）", key="app_name_text")
+        with c2:
+            d = st.date_input("日付", value=date.today())
         with c3:
             pass
 
@@ -374,11 +372,9 @@ with tab1:
 with tab2:
     st.subheader("入力（アンケート）")
     with st.form("survey_form"):
-        c1, c2 = st.columns(2)
+        # 名字選單置左、日期改放右
+        c1, c2 = st.columns([2, 2])
         with c1:
-            d2 = st.date_input("日付", value=date.today(), key="survey_date")
-        with c2:
-            # 名字輸入：選擇 / 新規輸入
             existing_names2 = st.session_state.names
             default_mode2 = "選択" if existing_names2 else "新規入力"
             name_mode2 = st.radio(
@@ -395,6 +391,8 @@ with tab2:
                 )
             else:
                 name2 = st.text_input("スタッフ名（新規入力）", key="survey_name_text")
+        with c2:
+            d2 = st.date_input("日付", value=date.today(), key="survey_date")
 
         cnt = st.number_input("アンケート（件）", min_value=0, step=1, value=0)
         submitted2 = st.form_submit_button("保存")
