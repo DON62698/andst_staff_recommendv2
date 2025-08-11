@@ -172,3 +172,56 @@ def get_target(month: str, category: str) -> int:
             except Exception:
                 return 0
     return 0
+
+
+# ==== Cached Google Sheets client & workbook (added by assistant) ====
+
+def _get_sheet_url():
+    """Resolve sheet URL from Streamlit secrets, env var, or fallback default."""
+    if st is not None:
+        try:
+            return st.secrets["sheets"]["url"]
+        except Exception:
+            pass
+    return os.environ.get("SHEET_URL", SHEET_URL_DEFAULT)
+
+# Guard decorator for non-Streamlit contexts
+if st is not None:
+    @st.cache_resource
+    def _client_and_book():
+        import json
+        scope = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        if st is not None:
+            creds_dict = dict(st.secrets["gcp_service_account"])  # type: ignore
+        else:
+            creds_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+            if not creds_json:
+                raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON env var for service account credentials.")
+            creds_dict = json.loads(creds_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        sh = client.open_by_url(_get_sheet_url())
+        return client, sh
+else:
+    def _client_and_book():
+        import json
+        scope = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        creds_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
+        if not creds_json:
+            raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON env var for service account credentials.")
+        creds_dict = json.loads(creds_json)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+        client = gspread.authorize(creds)
+        sh = client.open_by_url(_get_sheet_url())
+        return client, sh
+
+def _open_workbook():
+    """Return cached Spreadsheet handle (overrides any previous definition)."""
+    return _client_and_book()[1]
+# ==== End cached block ====
