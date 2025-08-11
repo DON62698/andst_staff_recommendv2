@@ -225,3 +225,36 @@ def _open_workbook():
     """Return cached Spreadsheet handle (overrides any previous definition)."""
     return _client_and_book()[1]
 # ==== End cached block ====
+
+
+# ==== Safe override for _ensure_worksheet (added by assistant) ====
+from gspread.exceptions import WorksheetNotFound, APIError as _GSpreadAPIError
+
+def _ensure_worksheet(sh, name: str, header):
+    """Return a worksheet with the given header ensured.
+    - Creates the sheet if missing.
+    - If reading header fails due to APIError, proceeds to set header.
+    """
+    try:
+        try:
+            ws = sh.worksheet(name)
+        except WorksheetNotFound:
+            ws = sh.add_worksheet(title=name, rows=1000, cols=max(26, len(header)))
+
+        # Try to read the first row; if it fails, treat as empty
+        try:
+            first_row = ws.row_values(1)
+        except _GSpreadAPIError:
+            first_row = []
+
+        # Normalize and check header
+        normalized = [str(c).strip() for c in (first_row or [])]
+        if normalized != header:
+            # Compute end column (A..Z); header size in this app <= 5, so this is fine
+            end_col = chr(64 + len(header))  # 1->A, 2->B, ...
+            ws.update(f"A1:{end_col}1", [header])
+        return ws
+    except Exception as e:
+        raise RuntimeError(f"_ensure_worksheet('{name}') failed: {e}")
+# ==== End safe override ====
+
