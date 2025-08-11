@@ -91,19 +91,16 @@ def show_data_management():
         type_map = {"新規": "new", "既存": "exist", "LINE": "line", "アンケート": "survey"}
         delete_type = type_map[delete_type_ui]
 
-        if st.button("⚠️ このデータを削除する", type="primary"):
-            if not delete_name:
-                st.warning("名前を入力してください。")
-            else:
-                ok = delete_record(delete_date.strftime("%Y-%m-%d"), delete_name, delete_type)
-                if ok:
-                    st.success("データが削除されました。画面を更新します。")
-                    try:
-                        st.rerun()  # Streamlit 1.30+
-                    except Exception:
-                        st.experimental_rerun()  # 旧版互換
-                else:
-                    st.warning("該当するデータが見つかりませんでした。")
+      if st.button("⚠️ このデータを削除する", type="primary"):
+    if not delete_name:
+        st.warning("名前を入力してください。")
+    else:
+        ok = delete_record(delete_date.strftime("%Y-%m-%d"), delete_name, delete_type)
+        if ok:
+            st.success("データが削除されました。")
+        else:
+            st.warning("該当するデータが見つかりませんでした。")
+
 
  
     st.markdown(
