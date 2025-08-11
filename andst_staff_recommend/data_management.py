@@ -1,120 +1,188 @@
 import streamlit as st
 import pandas as pd
-from db_gsheets import load_all_records, delete_record
+from datetime import date
+import matplotlib.pyplot as plt
 
-def show_data_management():
-    st.header("📋 データ管理")
+# ✅ Use the Google Sheets backend
+from db_gsheets import (
+    init_db,
+    init_target_table,
+    load_all_records,
+    insert_or_update_record,
+    get_target,
+    set_target,
+)
+from data_management import show_data_management
 
-    # 1) 讀取資料
-    records = load_all_records()
-    if not records:
-        st.info("現在、データが登録されていません。")
-        return
 
-    df = pd.DataFrame(records)
 
-    # 確保基本欄位存在
-    for col in ["date", "week", "name", "type", "count"]:
-        if col not in df.columns:
-            df[col] = None
+@st.cache_data(ttl=60)
+def load_all_records_cached():
+    return load_all_records()
+# -----------------------
+# Session initialization
+# -----------------------
+def init_session():
+    if "data" not in st.session_state:
+        # db_gsheets returns rows like: {date, week, name, type, count}
+        st.session_state.data = load_all_records_cached()
+    if "names" not in st.session_state:
+        st.session_state.names = set([r.get("name", "") for r in st.session_state.data if r.get("name")])
 
-    # 整理欄位型別與排序
-    df["date"] = pd.to_datetime(df["date"], errors="coerce")
-    # count 轉成數字（非數字者視為 0）
-    df["count"] = pd.to_numeric(df["count"], errors="coerce").fillna(0).astype(int)
-    df.sort_values(by=["date", "name", "type"], ascending=[False, True, True], inplace=True)
+_init_once()
+init_session()
 
-    # -----------------------------
-    # 🔍 檢視／搜尋
-    # -----------------------------
-    with st.expander("🔍 データを表示・検索", expanded=True):
+st.title("and st統計記録")
+
+tab1, tab2, tab3 = st.tabs(["APP推薦紀錄", "アンケート紀錄", "データ管理"])
+
+def get_week_str(d: date) -> str:
+    return f"{d.isocalendar().week}w"
+
+# -----------------------
+# Record form
+# -----------------------
+def record_form(label: str, category: str):
+    st.subheader(label)
+    with st.form(f"{category}_form"):
         col1, col2 = st.columns(2)
         with col1:
-            name_filter = st.text_input("名前フィルター（空白で全件）")
+            selected_date = st.date_input("日付", value=date.today(), key=f"{category}_date")
         with col2:
-            # ✅ UI 顯示：加入「App（新規+既存）」作為集合篩選；其餘對應到單一類型
-            type_filter = st.selectbox(
-                "タイプ",
-                options=["すべて", "App（新規+既存）", "新規", "既存", "LINE", "アンケート"]
-            )
+            if st.session_state.names:
+                name = st.selectbox("名前を選択", options=sorted(st.session_state.names), key=f"{category}_name_select")
+            else:
+                name = ""
+            name_input = st.text_input("新しい名前を入力", key=f"{category}_name_input")
 
-        filtered_df = df.copy()
-        if name_filter:
-            # 避免 NaN + 模糊比對
-            filtered_df = filtered_df[filtered_df["name"].fillna("").str.contains(name_filter, case=False, na=False)]
+        if name_input:
+            name = name_input.strip()
+            if name:
+                st.session_state.names.add(name)
 
-        # ✅ UI -> 實際存檔類型對應表
-        ui_to_types = {
-            "すべて": None,
-            "App（新規+既存）": ["new", "exist"],
-            "新規": ["new"],
-            "既存": ["exist"],
-            "LINE": ["line"],
-            "アンケート": ["survey"],
-        }
-
-        # 依選項套用篩選
-        if type_filter != "すべて":
-            filtered_df = filtered_df[filtered_df["type"].isin(ui_to_types[type_filter])]
-
-        # 顯示時把英文類型轉日文
-        display_df = filtered_df.copy()
-        jp_map = {"new": "新規", "exist": "既存", "line": "LINE", "survey": "アンケート"}
-        display_df["タイプ"] = display_df["type"].map(jp_map).fillna(display_df["type"])
-
-        # 選擇顯示欄位（ date, name, type->タイプ, count ； week 如需也可加進來）
-        show_cols = []
-        if "date" in display_df.columns:
-            show_cols.append("date")
-        if "name" in display_df.columns:
-            show_cols.append("name")
-        show_cols.append("タイプ")
-        if "count" in display_df.columns:
-            show_cols.append("count")
-
-        st.dataframe(display_df[show_cols], use_container_width=True)
-
-    # -----------------------------
-    # 🗑️ 刪除資料
-    # -----------------------------
-    with st.expander("🗑️ データを削除", expanded=False):
-        st.write("削除したい日付・名前・タイプを選択してください。")
-
-        delete_date = st.date_input("日付（削除対象）")
-        delete_name = st.text_input("名前（削除対象）")
-
-        # ✅ 刪除時必須精確指定一個真實類型（不可用集合的 App）
-        delete_type_ui = st.selectbox(
-            "タイプ（削除対象）",
-            options=["新規", "既存", "LINE", "アンケート"]
-        )
-        type_map = {"新規": "new", "既存": "exist", "LINE": "line", "アンケート": "survey"}
-        delete_type = type_map[delete_type_ui]
-
-      if st.button("⚠️ このデータを削除する", type="primary"):
-    if not delete_name:
-        st.warning("名前を入力してください。")
-    else:
-        ok = delete_record(delete_date.strftime("%Y-%m-%d"), delete_name, delete_type)
-        if ok:
-            st.success("データが削除されました。")
+        # Inputs
+        if category == "app":
+            new = st.number_input("新規", 0, 100, 0, key=f"{category}_new")
+            exist = st.number_input("既存", 0, 100, 0, key=f"{category}_exist")
+            line = st.number_input("LINE", 0, 100, 0, key=f"{category}_line")
         else:
-            st.warning("該当するデータが見つかりませんでした。")
+            survey = st.number_input("アンケート件数", 0, 100, 0, key=f"{category}_survey")
 
+        submitted = st.form_submit_button("保存")
+        if submitted:
+            if not name:
+                st.warning("名前を入力または選択してください。")
+                return
 
- 
-    st.markdown(
-       '''
-     <style>
-        .stApp {
-        background-image: url('https://cdn.openai.com/chat-assets/brand/3682/A_graphic_design_advertisement_poster_for_%22niko_an.png');
-        background-size: cover;
-        background-position: center;
-        background-attachment: fixed;
-        background-repeat: no-repeat;
-      }
-    </style>
-       '''
-    , unsafe_allow_html=True
-    )
+            date_str = selected_date.strftime("%Y-%m-%d")
+            week = get_week_str(selected_date)
 
+            # Remove existing entries for the same (date, name) and affected types from session
+            def remove_from_session(types):
+                st.session_state.data = [
+                    r for r in st.session_state.data
+                    if not (r.get("date")==date_str and r.get("name")==name and r.get("type") in types)
+                ]
+
+            if category == "app":
+                # Types for app mode are separated into 3 rows: new/exist/line
+                affected = ["new", "exist", "line"]
+                remove_from_session(affected)
+
+                for t, cnt in [("new", new), ("exist", exist), ("line", line)]:
+                    insert_or_update_record(date_str, name, t, int(cnt))
+                    st.session_state.data.append({
+                        "date": date_str, "week": week, "name": name, "type": t, "count": int(cnt)
+                    })
+            else:
+                affected = ["survey"]
+                remove_from_session(affected)
+                insert_or_update_record(date_str, name, "survey", int(survey))
+                st.session_state.data.append({
+                    "date": date_str, "week": week, "name": name, "type": "survey", "count": int(survey)
+                })
+
+            st.success("保存しました")
+
+# -----------------------
+# Tabs
+# -----------------------
+with tab1:
+    record_form("APP推薦紀錄", "app")
+    st.divider()
+    st.subheader("APP月目標設定")
+    current_month = date.today().strftime("%Y-%m")
+    app_target = get_target(current_month, "app")
+    new_app_target = st.number_input("APP 月目標件数", 0, 1000, app_target)
+    if new_app_target != app_target:
+        set_target(current_month, "app", int(new_app_target))
+        try:
+            st.rerun()
+        except Exception:
+            st.experimental_rerun()
+
+with tab2:
+    record_form("アンケート紀錄", "survey")
+    st.divider()
+    st.subheader("アンケート月目標設定")
+    current_month = date.today().strftime("%Y-%m")
+    survey_target = get_target(current_month, "survey")
+    new_survey_target = st.number_input("アンケート 月目標件数", 0, 1000, survey_target)
+    if new_survey_target != survey_target:
+        set_target(current_month, "survey", int(new_survey_target))
+        try:
+            st.rerun()
+        except Exception:
+            st.experimental_rerun()
+
+# -----------------------
+# Statistics
+# -----------------------
+def show_statistics(category: str, label: str):
+    st.header(f"{label} 統計")
+    df = pd.DataFrame(st.session_state.data)
+    if df.empty:
+        st.info("まだデータがありません")
+        return
+
+    # date & month filter
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df["month"] = df["date"].dt.strftime("%Y-%m")
+    current_month = date.today().strftime("%Y-%m")
+    df = df[df["month"] == current_month].copy()
+
+    if category == "app":
+        df = df[df["type"].isin(["new", "exist", "line"])]
+        total = int(df["count"].sum())
+        target = get_target(current_month, "app")
+    else:
+        df = df[df["type"] == "survey"]
+        total = int(df["count"].sum())
+        target = get_target(current_month, "survey")
+
+    st.metric("今月累計件数", total)
+    if target:
+        st.metric("達成率", f"{(total / target * 100):.1f}%")
+
+    st.subheader("週別件数")
+    week_series = df.groupby("week")["count"].sum()
+    st.bar_chart(week_series)
+
+    st.subheader("スタッフ別合計")
+    staff_series = df.groupby("name")["count"].sum()
+    st.bar_chart(staff_series)
+
+    if category == "app":
+        st.subheader("構成比 (App vs LINE)")
+        app_total = int(df[df["type"].isin(["new", "exist"])]["count"].sum())
+        line_total = int(df[df["type"] == "line"]["count"].sum())
+        if app_total + line_total > 0:
+            plt.figure()
+            plt.pie([app_total, line_total], labels=["App", "LINE"], autopct="%1.1f%%", startangle=90)
+            st.pyplot(plt.gcf())
+
+show_statistics("app", "APP")
+show_statistics("survey", "アンケート")
+
+with tab3:
+    show_data_management()
