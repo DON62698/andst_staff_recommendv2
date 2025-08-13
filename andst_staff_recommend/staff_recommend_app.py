@@ -188,11 +188,6 @@ init_session()
 # 版頭
 # -----------------------------
 st.title("and st 統計記録 Team Men's")
-# （可選）強制刷新鈕
-if st.button("リセット", use_container_width=False):
-    load_all_records_cached.clear()
-    st.session_state.data = load_all_records_cached()
-    st.rerun()
 
 tab1, tab2, tab3 = st.tabs(["APP推薦紀錄", "アンケート紀錄", "データ管理"])
 
