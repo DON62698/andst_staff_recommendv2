@@ -439,6 +439,8 @@ with tab1:
                     st.error(f"保存失敗: {e}")
 
     show_statistics("app", "APP")
+    render_refresh_button("refresh_app_tab")
+
 
 # -----------------------------
 # 表單：アンケート（問卷取得件數）
