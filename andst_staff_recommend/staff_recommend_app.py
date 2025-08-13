@@ -3,6 +3,16 @@ import pandas as pd
 from datetime import date
 import matplotlib.pyplot as plt
 
+from matplotlib import font_manager, rcParams
+
+try:
+    font_manager.fontManager.addfont("fonts/NotoSansJP-Regular.otf")
+    _fp = font_manager.FontProperties(fname="fonts/NotoSansJP-Regular.otf")
+    rcParams["font.family"] = _fp.get_name()
+except Exception:
+    pass  # 沒放字型就用預設（可能無法顯示中日文）
+
+
 # --- 日文字型偵測，避免圖表亂碼 ---
 from matplotlib import font_manager, rcParams
 _JP_FONT_CANDIDATES = [
