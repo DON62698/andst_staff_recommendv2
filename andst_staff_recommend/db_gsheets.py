@@ -1,381 +1,208 @@
 import os
-from datetime import datetime
 from typing import List, Dict, Any, Optional
-
-# Streamlit is optional here (only used to read st.secrets if available)
-try:
-    import streamlit as st  # type: ignore
-except Exception:  # pragma: no cover
-    st = None  # type: ignore
-
+import streamlit as st
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
+from datetime import datetime
 
-# ====== Configuration ======
-# Prefer reading from Streamlit secrets
-SHEET_URL_DEFAULT = "https://docs.google.com/spreadsheets/d/1dRMaH6G1bLzv-Bt1q5wEnZPC4ZylMCE7Dzcj1KAwURE/edit?usp=sharing"
+# ===== 設定 =====
+RECORDS_SHEET = "records"   # 欄位: date, week, name, type, count
+TARGETS_SHEET = "targets"   # 欄位: month, type, target
 
-def _get_creds_dict() -> dict:
-    """
-    Load Google Service Account JSON credentials.
-    Priority:
-      1) st.secrets["gcp_service_account"] (Streamlit Cloud recommended)
-      2) JSON string in env GOOGLE_SERVICE_ACCOUNT_JSON
-      3) JSON file path in env GOOGLE_APPLICATION_CREDENTIALS
-    """
-    # 1) Streamlit secrets
-    if st is not None:
-        try:
-            return dict(st.secrets["gcp_service_account"])  # type: ignore
-        except Exception:
-            pass
-
-    # 2) Env JSON string
-    js = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON")
-    if js:
-        import json
-        return json.loads(js)
-
-    # 3) Env file path
-    path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
-    if path and os.path.exists(path):
-        import json
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-
-    raise RuntimeError("Google Service Account credentials not found. Set st.secrets['gcp_service_account'] or env GOOGLE_SERVICE_ACCOUNT_JSON / GOOGLE_APPLICATION_CREDENTIALS.")
-
+# 允許從 st.secrets 或環境變數讀取設定
 def _get_sheet_url() -> str:
-    if st is not None:
-        try:
-            return st.secrets.get("sheet_url", SHEET_URL_DEFAULT)  # type: ignore
-        except Exception:
-            pass
-    return os.getenv("SHEET_URL", SHEET_URL_DEFAULT)
+    # 你可以在 .streamlit/secrets.toml 放 GSHEET_URL
+    # 或者使用環境變數 GSHEET_URL
+    url = st.secrets.get("GSHEET_URL", None) if hasattr(st, "secrets") else None
+    if not url:
+        url = os.getenv("GSHEET_URL")
+    if not url:
+        raise RuntimeError("GSHEET_URL not found in st.secrets or env")
+    return url
 
-def _get_client() -> gspread.Client:
-    creds_dict = _get_creds_dict()
-    scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-    creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
+def _get_credentials() -> Credentials:
+    # 建議在 st.secrets 放 GCP 的 service_account 內容
+    if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
+        info = dict(st.secrets["gcp_service_account"])
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        return Credentials.from_service_account_info(info, scopes=scopes)
+    # 退而求其次：用 JSON 路徑
+    json_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
+    if json_path and os.path.exists(json_path):
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive",
+        ]
+        return Credentials.from_service_account_file(json_path, scopes=scopes)
+    raise RuntimeError("No Google credentials found. Set st.secrets['gcp_service_account'] or GOOGLE_APPLICATION_CREDENTIALS.")
+
+def _client() -> gspread.Client:
+    creds = _get_credentials()
     return gspread.authorize(creds)
 
 def _open_workbook():
-    client = _get_client()
-    return client.open_by_url(_get_sheet_url())
+    url = _get_sheet_url()
+    client = _client()
+    return client.open_by_url(url)
 
-def _ensure_worksheet(sh, title: str, header: list) -> gspread.Worksheet:
+def _ensure_worksheet(sh: gspread.Spreadsheet, title: str, headers: List[str]) -> gspread.Worksheet:
     try:
         ws = sh.worksheet(title)
     except gspread.WorksheetNotFound:
-        ws = sh.add_worksheet(title=title, rows="1000", cols=str(max(10, len(header))))
-        ws.append_row(header)
-    # If first row is empty or not header, ensure header exists
-    first_row = ws.row_values(1)
-    if not first_row:
-        ws.update("A1", [header])
+        ws = sh.add_worksheet(title=title, rows=1000, cols=max(10, len(headers)))
+        ws.append_row(headers)
+        return ws
+
+    # 確認標題列
+    vals = ws.row_values(1)
+    if [v.strip().lower() for v in vals] != [h.strip().lower() for h in headers]:
+        # 重新設定第 1 列為正確 headers（保留舊資料）
+        ws.delete_rows(1)
+        ws.insert_row(headers, index=1)
     return ws
 
-# ====== Public API (drop-in replacement for db.py) ======
-
+# ===== 初始化 =====
 def init_db():
-    """Ensure worksheets exist with headers. Mirrors sqlite init."""
     sh = _open_workbook()
-    _ensure_worksheet(sh, "records", ["date", "week", "name", "type", "count"])
-    _ensure_worksheet(sh, "targets", ["month", "type", "target"])
+    _ensure_worksheet(sh, RECORDS_SHEET, ["date", "week", "name", "type", "count"])
 
 def init_target_table():
-    """Kept for compatibility; targets sheet is created in init_db."""
-    init_db()
+    sh = _open_workbook()
+    _ensure_worksheet(sh, TARGETS_SHEET, ["month", "type", "target"])
 
-def _week_str(date_str: str) -> str:
-    dt = datetime.strptime(date_str, "%Y-%m-%d")
-    return f"{dt.isocalendar().week}w"
-
+# ===== 讀資料 =====
 def load_all_records() -> List[Dict[str, Any]]:
     sh = _open_workbook()
-    ws = _ensure_worksheet(sh, "records", ["date", "week", "name", "type", "count"])
+    ws = _ensure_worksheet(sh, RECORDS_SHEET, ["date", "week", "name", "type", "count"])
     rows = ws.get_all_records()
-    out: List[Dict[str, Any]] = []
+    # 正規化：補 week 欄位（以 ISO 週為準）
+    out = []
     for r in rows:
-        if not r.get("date"):
-            continue
-        item = {
-            "date": r.get("date"),
-            "week": r.get("week") or _week_str(r.get("date")),
-            "name": r.get("name", ""),
-            "type": r.get("type", ""),
-            "count": int(r.get("count") or 0),
-        }
-        out.append(item)
+        dstr = str(r.get("date") or "").strip()
+        nm   = (r.get("name") or "").strip()
+        tp   = (r.get("type") or "").strip()
+        cnt  = r.get("count")
+        wk   = r.get("week")
+
+        # 日期轉換 & 週
+        try:
+            dt = datetime.strptime(dstr, "%Y-%m-%d")
+        except Exception:
+            # 允許 2025/08/12 這種
+            try:
+                dt = datetime.strptime(dstr, "%Y/%m/%d")
+                dstr = dt.strftime("%Y-%m-%d")
+            except Exception:
+                dt = None
+        if dt and not wk:
+            wk = dt.isocalendar().week
+
+        # 數值
+        try:
+            cnt = int(cnt)
+        except Exception:
+            cnt = 0
+
+        out.append(dict(date=dstr, week=wk, name=nm, type=tp, count=cnt))
     return out
 
-def _find_row(ws: gspread.Worksheet, date_str: str, name: str, category: str) -> Optional[int]:
-    """Return row index (1-based) for first match below header, else None."""
-    # naive scan
-    all_values = ws.get_all_values()
-    if not all_values:
-        return None
-    for idx, row in enumerate(all_values[1:], start=2):
-        d, w, n, t, c = (row + ["", "", "", "", ""])[:5]
-        if d == date_str and n == name and t == category:
-            return idx
-    return None
-
-def insert_or_update_record(date_str: str, name: str, category: str, count: int):
-    sh = _open_workbook()
-    ws = _ensure_worksheet(sh, "records", ["date", "week", "name", "type", "count"])
-    row_idx = _find_row(ws, date_str, name, category)
-    week = _week_str(date_str)
-    if row_idx:
-        ws.update(f"A{row_idx}:E{row_idx}", [[date_str, week, name, category, int(count)]])
-    else:
-        ws.append_row([date_str, week, name, category, int(count)])
-
-def delete_record(date_str: str, name: str, category: str) -> bool:
-    sh = _open_workbook()
-    ws = _ensure_worksheet(sh, "records", ["date", "week", "name", "type", "count"])
-    row_idx = _find_row(ws, date_str, name, category)
-    if row_idx:
-        ws.delete_rows(row_idx)
-        return True
-    return False
-
-def set_target(month: str, category: str, value: int):
+# ===== 新增/更新（upsert） =====
+def insert_or_update_record(date_str: str, name: str, tp: str, add_count: int):
     """
-    Upsert into targets sheet.
-    month: "2025-08" (YYYY-MM)
-    category: "app" or "survey"
+    若同 (date, name, type) 已存在，將 count += add_count；
+    否則新增一列。
     """
     sh = _open_workbook()
-    ws = _ensure_worksheet(sh, "targets", ["month", "type", "target"])
-    # scan for existing
-    all_values = ws.get_all_values()
-    found = None
-    for idx, row in enumerate(all_values[1:], start=2):
-        m, t, v = (row + ["", "", ""])[:3]
-        if m == month and t == category:
-            found = idx
+    ws = _ensure_worksheet(sh, RECORDS_SHEET, ["date", "week", "name", "type", "count"])
+
+    # 讀整張表來找是否有同鍵
+    data = ws.get_all_values()
+    headers = [h.strip().lower() for h in data[0]] if data else ["date", "week", "name", "type", "count"]
+    col_map = {h: i for i, h in enumerate(headers)}  # 0-based
+
+    # 嘗試尋找既有列
+    target_row_idx = None  # 1-based for gspread
+    for i in range(1, len(data)):  # 跳過 header
+        row = data[i]
+        d0  = (row[col_map.get("date", 0)] if col_map.get("date") is not None and col_map.get("date") < len(row) else "").strip()
+        n0  = (row[col_map.get("name", 2)] if col_map.get("name") is not None and col_map.get("name") < len(row) else "").strip()
+        t0  = (row[col_map.get("type", 3)] if col_map.get("type") is not None and col_map.get("type") < len(row) else "").strip()
+        if d0 == date_str and n0 == name and t0 == tp:
+            target_row_idx = i + 1  # gspread 是 1-based
             break
-    if found:
-        ws.update(f"A{found}:C{found}", [[month, category, int(value)]])
-    else:
-        ws.append_row([month, category, int(value)])
 
-def get_target(month: str, category: str) -> int:
+    # 計算 week
+    try:
+        dt = datetime.strptime(date_str, "%Y-%m-%d")
+    except Exception:
+        dt = None
+    week = dt.isocalendar().week if dt else ""
+
+    if target_row_idx:
+        # 更新：原 count + add_count
+        try:
+            old_count_cell = ws.cell(target_row_idx, col_map.get("count", 5) + 1).value
+            old_count = int(old_count_cell or 0)
+        except Exception:
+            old_count = 0
+        new_count = int(old_count) + int(add_count)
+        ws.update_cell(target_row_idx, col_map.get("count", 5) + 1, new_count)
+        # 同時把 week/date/name/type 正規化回寫一次（以免有舊格式）
+        ws.update_cell(target_row_idx, col_map.get("week", 2) + 1, week)
+        ws.update_cell(target_row_idx, col_map.get("date", 1) + 1, date_str)
+        ws.update_cell(target_row_idx, col_map.get("name", 3) + 1, name)
+        ws.update_cell(target_row_idx, col_map.get("type", 4) + 1, tp)
+    else:
+        # 新增
+        ws.append_row([date_str, week, name, tp, int(add_count)])
+
+# ===== 目標值 =====
+def get_target(month_ym: str, tp: str) -> int:
+    """
+    month_ym: 'YYYY-MM'
+    tp: 'app' 或 'survey'
+    """
     sh = _open_workbook()
-    ws = _ensure_worksheet(sh, "targets", ["month", "type", "target"])
+    ws = _ensure_worksheet(sh, TARGETS_SHEET, ["month", "type", "target"])
     rows = ws.get_all_records()
     for r in rows:
-        if r.get("month") == month and r.get("type") == category:
+        m = str(r.get("month") or "").strip()
+        t = str(r.get("type") or "").strip()
+        if m == month_ym and t == tp:
             try:
                 return int(r.get("target") or 0)
             except Exception:
                 return 0
     return 0
 
-
-# ==== Cached Google Sheets client & workbook (added by assistant) ====
-
-def _get_sheet_url():
-    """Resolve sheet URL from Streamlit secrets, env var, or fallback default."""
-    if st is not None:
-        try:
-            return st.secrets["sheets"]["url"]
-        except Exception:
-            pass
-    return os.environ.get("SHEET_URL", SHEET_URL_DEFAULT)
-
-# Guard decorator for non-Streamlit contexts
-if st is not None:
-    @st.cache_resource
-    def _client_and_book():
-        import json
-        scope = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        if st is not None:
-            creds_dict = dict(st.secrets["gcp_service_account"])  # type: ignore
-        else:
-            creds_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-            if not creds_json:
-                raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON env var for service account credentials.")
-            creds_dict = json.loads(creds_json)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        sh = client.open_by_url(_get_sheet_url())
-        return client, sh
-else:
-    def _client_and_book():
-        import json
-        scope = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        creds_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-        if not creds_json:
-            raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON env var for service account credentials.")
-        creds_dict = json.loads(creds_json)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        sh = client.open_by_url(_get_sheet_url())
-        return client, sh
-
-def _open_workbook():
-    """Return cached Spreadsheet handle (overrides any previous definition)."""
-    return _client_and_book()[1]
-# ==== End cached block ====
-
-
-# ==== Safe override for _ensure_worksheet (added by assistant) ====
-from gspread.exceptions import WorksheetNotFound, APIError as _GSpreadAPIError
-
-def _ensure_worksheet(sh, name: str, header):
-    """Return a worksheet with the given header ensured.
-    - Creates the sheet if missing.
-    - If reading header fails due to APIError, proceeds to set header.
-    """
-    try:
-        try:
-            ws = sh.worksheet(name)
-        except WorksheetNotFound:
-            ws = sh.add_worksheet(title=name, rows=1000, cols=max(26, len(header)))
-
-        # Try to read the first row; if it fails, treat as empty
-        try:
-            first_row = ws.row_values(1)
-        except _GSpreadAPIError:
-            first_row = []
-
-        # Normalize and check header
-        normalized = [str(c).strip() for c in (first_row or [])]
-        if normalized != header:
-            # Compute end column (A..Z); header size in this app <= 5, so this is fine
-            end_col = chr(64 + len(header))  # 1->A, 2->B, ...
-            ws.update(f"A1:{end_col}1", [header])
-        return ws
-    except Exception as e:
-        raise RuntimeError(f"_ensure_worksheet('{name}') failed: {e}")
-# ==== End safe override ====
-# ==== Cached Google Sheets client & workbook (assistant patch) ====
-def _get_sheet_url():
-    """Resolve sheet URL from Streamlit secrets, env var, or fallback default."""
-    if st is not None:
-        try:
-            return st.secrets["sheets"]["url"]
-        except Exception:
-            pass
-    return os.environ.get("SHEET_URL", SHEET_URL_DEFAULT)
-
-if st is not None:
-    @st.cache_resource
-    def _client_and_book():
-        import json
-        scope = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        sh = client.open_by_url(_get_sheet_url())
-        return client, sh
-else:
-    def _client_and_book():
-        import json
-        scope = [
-            "https://www.googleapis.com/auth/spreadsheets",
-            "https://www.googleapis.com/auth/drive",
-        ]
-        creds_json = os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "")
-        if not creds_json:
-            raise RuntimeError("Missing GOOGLE_SERVICE_ACCOUNT_JSON env var for service account credentials.")
-        creds_dict = json.loads(creds_json)
-        creds = ServiceAccountCredentials.from_json_keyfile_dict(creds_dict, scope)
-        client = gspread.authorize(creds)
-        sh = client.open_by_url(_get_sheet_url())
-        return client, sh
-
-def _open_workbook():
-    """Return cached Spreadsheet handle (overrides any previous definition)."""
-    return _client_and_book()[1]
-# ==== End cached block ====
-
-
-# ==== Safe override for _ensure_worksheet (assistant patch) ====
-from gspread.exceptions import WorksheetNotFound, APIError as _GSpreadAPIError
-
-def _ensure_worksheet(sh, name: str, header):
-    """Return a worksheet with the given header ensured.
-    - Creates the sheet if missing.
-    - If reading header fails due to APIError, proceeds to set header.
-    """
-    try:
-        try:
-            ws = sh.worksheet(name)
-        except WorksheetNotFound:
-            ws = sh.add_worksheet(title=name, rows=1000, cols=max(26, len(header)))
-
-        # Try to read the first row; if it fails, treat as empty
-        try:
-            first_row = ws.row_values(1)
-        except _GSpreadAPIError:
-            first_row = []
-
-        normalized = [str(c).strip() for c in (first_row or [])]
-        if normalized != header:
-            end_col = chr(64 + len(header))  # 1->A, 2->B, ...
-            ws.update(f"A1:{end_col}1", [header])
-        return ws
-    except Exception as e:
-        raise RuntimeError(f"_ensure_worksheet('{name}') failed: {e}")
-# ==== End safe override ====
-
-
-# ==== Robust get_target (assistant patch) ====
-def get_target(month: str, category: str) -> int:
-    """
-    Robustly read a single target value.
-    - Prefer small-range reads over get_all_records() to reduce API load.
-    - Fallbacks gracefully and returns 0 on non-critical errors.
-    """
+def set_target(month_ym: str, tp: str, target_val: int):
     sh = _open_workbook()
-    ws = _ensure_worksheet(sh, "targets", ["month", "type", "target"])
-    # Fast path
-    try:
-        rows = ws.get_all_records()
-        for r in rows:
-            if r.get("month") == month and r.get("type") == category:
-                try:
-                    return int(r.get("target") or 0)
-                except Exception:
-                    return 0
-    except Exception:
-        pass
+    ws = _ensure_worksheet(sh, TARGETS_SHEET, ["month", "type", "target"])
 
-    # Fallback: bounded range
-    try:
-        data = ws.get("A1:C1000") or []
-    except Exception:
-        return 0
+    data = ws.get_all_values()
+    headers = [h.strip().lower() for h in data[0]] if data else ["month", "type", "target"]
+    col_map = {h: i for i, h in enumerate(headers)}
 
-    if not data:
-        return 0
+    # 尋找是否已存在 (month, type)
+    target_row_idx = None
+    for i in range(1, len(data)):
+        row = data[i]
+        m0 = (row[col_map.get("month", 0)] if col_map.get("month") is not None and col_map.get("month") < len(row) else "").strip()
+        t0 = (row[col_map.get("type", 1)] if col_map.get("type") is not None and col_map.get("type") < len(row) else "").strip()
+        if m0 == month_ym and t0 == tp:
+            target_row_idx = i + 1
+            break
 
-    header = [str(x).strip().lower() for x in (data[0] if data else [])]
-    def _idx(name, default):
-        return header.index(name) if name in header else default
-    im, it, iv = _idx("month", 0), _idx("type", 1), _idx("target", 2)
+    if target_row_idx:
+        ws.update_cell(target_row_idx, col_map.get("target", 2) + 1, int(target_val))
+        # 正規化回寫（避免大小寫或多餘空白）
+        ws.update_cell(target_row_idx, col_map.get("month", 0) + 1, month_ym)
+        ws.update_cell(target_row_idx, col_map.get("type", 1) + 1, tp)
+    else:
+        ws.append_row([month_ym, tp, int(target_val)])
 
-    for row in data[1:]:
-        if len(row) <= max(im, it, iv):
-            continue
-        if str(row[im]) == month and str(row[it]) == category:
-            try:
-                return int(row[iv])
-            except Exception:
-                return 0
-    return 0
-# ==== End robust get_target ====
 
 
