@@ -184,6 +184,16 @@ _init_once()
 # ✅ 每次 rerun 都整理好 UI 狀態
 init_session()
 
+def render_refresh_button(btn_key: str = "refresh_btn"):
+    # 右側窄欄，讓按鈕看起來在右下角
+    spacer, right = st.columns([12, 1])
+    with right:
+        if st.button("↻", key=btn_key, help="重新整理資料"):
+            load_all_records_cached.clear()
+            st.session_state.data = load_all_records_cached()
+            st.rerun()
+
+
 # -----------------------------
 # 版頭
 # -----------------------------
