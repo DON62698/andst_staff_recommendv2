@@ -482,6 +482,8 @@ with tab2:
                     st.error(f"保存失敗: {e}")
 
     show_statistics("survey", "アンケート")
+    render_refresh_button("refresh_survey_tab")
+
 
 # -----------------------------
 # データ管理
