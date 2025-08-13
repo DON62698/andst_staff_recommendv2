@@ -2,25 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import date
 import matplotlib.pyplot as plt
-# --- 固定右下角「リセット」按鈕用的 CSS ---
-st.markdown("""
-<style>
-/* 右下角固定容器 */
-.floating-reset {
-  position: fixed;
-  bottom: 20px;
-  right: 20px;
-  z-index: 1000;
-}
-/* 按鈕外觀（圓角 + 陰影） */
-.floating-reset .stButton > button {
-  border-radius: 9999px;
-  padding: 0.6rem 1.1rem;
-  font-weight: 600;
-  box-shadow: 0 4px 12px rgba(0,0,0,.15);
-}
-</style>
-""", unsafe_allow_html=True)
+
 # --- 強制載入專案內的日文字型（避免標題/括號/年 亂碼） ---
 import os
 from matplotlib import font_manager, rcParams
