@@ -3,41 +3,36 @@ import pandas as pd
 from datetime import date
 import matplotlib.pyplot as plt
 
-# --- 強制載入專案內的日文字型（避免標題亂碼） ---
+# --- 強制載入專案內的日文字型（避免標題/括號/年 亂碼） ---
 import os
 from matplotlib import font_manager, rcParams
 
 JP_FONT_READY = False
 try:
+    # 依你的專案結構放置字型：andst_staff_recommend/fonts/NotoSansJP-Regular.otf
     font_path = os.path.join(os.path.dirname(__file__), "fonts", "NotoSansJP-Regular.otf")
     font_manager.fontManager.addfont(font_path)
     _prop = font_manager.FontProperties(fname=font_path)
     rcParams["font.family"] = _prop.get_name()
     JP_FONT_READY = True
 except Exception:
-    JP_FONT_READY = False  # 找不到字型檔就維持 False
+    JP_FONT_READY = False  # 找不到字型檔就維持 False，再 fallback 到英文標題
+
+# 若專案沒放字型，再嘗試系統已裝字型（雲端環境常常沒有）
+if not JP_FONT_READY:
+    _JP_FONT_CANDIDATES = [
+        "Noto Sans CJK JP", "Noto Sans JP", "IPAGothic", "IPAexGothic",
+        "TakaoGothic", "Yu Gothic", "Hiragino Sans", "Meiryo", "MS Gothic",
+        "PingFang TC", "PingFang SC", "Heiti TC", "Heiti SC"
+    ]
+    available = {f.name for f in font_manager.fontManager.ttflist}
+    for _name in _JP_FONT_CANDIDATES:
+        if _name in available:
+            rcParams["font.family"] = _name
+            JP_FONT_READY = True
+            break
 
 rcParams["axes.unicode_minus"] = False  # 避免負號亂碼
-
-# （可選）想看現在用哪個字型，打開這行就會在頁面下方顯示
-# st.caption(f"Active font: {rcParams.get('font.family')}")
-
-
-
-# --- 日文字型偵測，避免圖表亂碼 ---
-from matplotlib import font_manager, rcParams
-_JP_FONT_CANDIDATES = [
-    "Noto Sans CJK JP", "Noto Sans JP", "IPAGothic", "IPAexGothic",
-    "TakaoGothic", "Yu Gothic", "Hiragino Sans", "Meiryo", "MS Gothic",
-]
-_available_fonts = {f.name for f in font_manager.fontManager.ttflist}
-JP_FONT_READY = False
-for _name in _JP_FONT_CANDIDATES:
-    if _name in _available_fonts:
-        rcParams["font.family"] = _name
-        JP_FONT_READY = True
-        break
-rcParams["axes.unicode_minus"] = False
 
 # ✅ Google Sheets 後端
 from db_gsheets import (
@@ -228,6 +223,13 @@ tab1, tab2, tab3 = st.tabs(["APP推薦紀錄", "アンケート紀錄", "デー�
 
 
 # -----------------------------
+# 小工具：圖表標題（有日文字型→日文；無→英文避免亂碼）
+# -----------------------------
+def chart_title(label: str, year: int) -> str:
+    return (f"{label} 月別累計（{year}年）") if JP_FONT_READY else (f"{label} Monthly totals ({year})")
+
+
+# -----------------------------
 # 統計區塊（含 構成比 + スタッフ別 合計 + 月別累計）
 # -----------------------------
 def show_statistics(category: str, label: str):
@@ -395,7 +397,7 @@ def show_statistics(category: str, label: str):
         plt.figure()
         plt.bar(monthly.index.tolist(), monthly.values.tolist())
         plt.xticks(rotation=45, ha="right")
-        plt.title(f"{label} Monthly totals（{year_sel3}年）")
+        plt.title(chart_title(label, int(year_sel3)))
         st.pyplot(plt.gcf())
 
 
@@ -522,3 +524,4 @@ with tab2:
 # -----------------------------
 with tab3:
     show_data_management()
+
