@@ -3,14 +3,25 @@ import pandas as pd
 from datetime import date
 import matplotlib.pyplot as plt
 
+# --- 強制載入專案內的日文字型（避免標題亂碼） ---
+import os
 from matplotlib import font_manager, rcParams
 
+JP_FONT_READY = False
 try:
-    font_manager.fontManager.addfont("fonts/NotoSansJP-Regular.otf")
-    _fp = font_manager.FontProperties(fname="fonts/NotoSansJP-Regular.otf")
-    rcParams["font.family"] = _fp.get_name()
+    font_path = os.path.join(os.path.dirname(__file__), "fonts", "NotoSansJP-Regular.otf")
+    font_manager.fontManager.addfont(font_path)
+    _prop = font_manager.FontProperties(fname=font_path)
+    rcParams["font.family"] = _prop.get_name()
+    JP_FONT_READY = True
 except Exception:
-    pass  # 沒放字型就用預設（可能無法顯示中日文）
+    JP_FONT_READY = False  # 找不到字型檔就維持 False
+
+rcParams["axes.unicode_minus"] = False  # 避免負號亂碼
+
+# （可選）想看現在用哪個字型，打開這行就會在頁面下方顯示
+# st.caption(f"Active font: {rcParams.get('font.family')}")
+
 
 
 # --- 日文字型偵測，避免圖表亂碼 ---
