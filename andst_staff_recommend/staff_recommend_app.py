@@ -18,7 +18,7 @@ for _name in _JP_FONT_CANDIDATES:
         break
 rcParams["axes.unicode_minus"] = False
 
-# ✅ Google Sheets 後端
+#  Google Sheets 後端
 from db_gsheets import (
     init_db,
     init_target_table,
@@ -28,7 +28,7 @@ from db_gsheets import (
     set_target,
 )
 
-# ✅ 資料管理頁
+#  資料管理頁
 from data_management import show_data_management
 
 
@@ -313,21 +313,12 @@ with tab1:
         c1, c2, c3 = st.columns([2, 2, 1])
         with c1:
             existing_names = st.session_state.names
-            default_mode = "選択" if existing_names else "新規入力"
-            name_mode = st.radio(
-                "名前の入力方法", ["選択", "新規入力"],
-                horizontal=True, key="app_name_mode",
-                index=(0 if default_mode == "選択" else 1)
-            )
-            if name_mode == "選択" and existing_names:
-                name = st.selectbox(
-                    "スタッフ名（選択）",
-                    options=existing_names,
-                    index=0,
-                    key="app_name_select"
-                )
+            name_options = (["＋新規入力…"] + existing_names) if existing_names else ["＋新規入力…"]
+            chosen = st.selectbox("スタッフ名", options=name_options, index=0, key="app_name_select")
+            if chosen == "＋新規入力…":
+                name = st.text_input("新しいスタッフ名", key="app_name_text").strip()
             else:
-                name = st.text_input("スタッフ名（新規入力）", key="app_name_text")
+                name = chosen
         with c2:
             d = st.date_input("日付", value=date.today())
         with c3:
@@ -343,22 +334,27 @@ with tab1:
 
         submitted = st.form_submit_button("保存")
         if submitted:
-            name = (name or "").strip()
             if not name:
                 st.warning("名前を入力してください。")
             else:
+                total_cnt = int(new_cnt) + int(exist_cnt) + int(line_cnt)
                 try:
-                    if new_cnt > 0:
-                        insert_or_update_record(ymd(d), name, "new", int(new_cnt))
-                    if exist_cnt > 0:
-                        insert_or_update_record(ymd(d), name, "exist", int(exist_cnt))
-                    if line_cnt > 0:
-                        insert_or_update_record(ymd(d), name, "line", int(line_cnt))
-                    # 重新抓資料並更新名字清單（清 cache 再讀，避免舊資料）
-                    load_all_records_cached.clear()
-                    st.session_state.data = load_all_records_cached()
-                    st.session_state.names = names_from_records(st.session_state.data)
-                    st.success("保存しました。")
+                    if total_cnt == 0:
+                        # 只註冊名字（不寫入 records）；下次就能在下拉選到
+                        st.session_state.names = sorted(set(st.session_state.names) | {name})
+                        st.success("名前を登録しました。（データは追加していません）")
+                    else:
+                        if new_cnt > 0:
+                            insert_or_update_record(ymd(d), name, "new", int(new_cnt))
+                        if exist_cnt > 0:
+                            insert_or_update_record(ymd(d), name, "exist", int(exist_cnt))
+                        if line_cnt > 0:
+                            insert_or_update_record(ymd(d), name, "line", int(line_cnt))
+                        # 重新抓資料並同步名字清單（以資料為準）
+                        load_all_records_cached.clear()
+                        st.session_state.data = load_all_records_cached()
+                        st.session_state.names = names_from_records(st.session_state.data)
+                        st.success("保存しました。")
                 except Exception as e:
                     st.error(f"保存失敗: {e}")
 
@@ -376,39 +372,32 @@ with tab2:
         c1, c2 = st.columns([2, 2])
         with c1:
             existing_names2 = st.session_state.names
-            default_mode2 = "選択" if existing_names2 else "新規入力"
-            name_mode2 = st.radio(
-                "名前の入力方法", ["選択", "新規入力"],
-                horizontal=True, key="survey_name_mode",
-                index=(0 if default_mode2 == "選択" else 1)
-            )
-            if name_mode2 == "選択" and existing_names2:
-                name2 = st.selectbox(
-                    "スタッフ名（選択）",
-                    options=existing_names2,
-                    index=0,
-                    key="survey_name_select"
-                )
+            name_options2 = (["＋新規入力…"] + existing_names2) if existing_names2 else ["＋新規入力…"]
+            chosen2 = st.selectbox("スタッフ名", options=name_options2, index=0, key="survey_name_select")
+            if chosen2 == "＋新規入力…":
+                name2 = st.text_input("新しいスタッフ名", key="survey_name_text").strip()
             else:
-                name2 = st.text_input("スタッフ名（新規入力）", key="survey_name_text")
+                name2 = chosen2
         with c2:
             d2 = st.date_input("日付", value=date.today(), key="survey_date")
 
         cnt = st.number_input("アンケート（件）", min_value=0, step=1, value=0)
         submitted2 = st.form_submit_button("保存")
         if submitted2:
-            name2 = (name2 or "").strip()
             if not name2:
                 st.warning("名前を入力してください。")
             else:
                 try:
-                    if cnt > 0:
+                    if int(cnt) == 0:
+                        # 只註冊名字（不寫入 records）
+                        st.session_state.names = sorted(set(st.session_state.names) | {name2})
+                        st.success("名前を登録しました。（データは追加していません）")
+                    else:
                         insert_or_update_record(ymd(d2), name2, "survey", int(cnt))
-                    # 重新抓資料並更新名字清單（清 cache 再讀，避免舊資料）
-                    load_all_records_cached.clear()
-                    st.session_state.data = load_all_records_cached()
-                    st.session_state.names = names_from_records(st.session_state.data)
-                    st.success("保存しました。")
+                        load_all_records_cached.clear()
+                        st.session_state.data = load_all_records_cached()
+                        st.session_state.names = names_from_records(st.session_state.data)
+                        st.success("保存しました。")
                 except Exception as e:
                     st.error(f"保存失敗: {e}")
 
