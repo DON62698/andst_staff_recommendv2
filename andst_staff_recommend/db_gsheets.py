@@ -17,6 +17,7 @@ def _get_sheet_url() -> str:
     return url
 
 def _get_credentials() -> Credentials:
+    # 建議把 service account JSON 放在 st.secrets["gcp_service_account"]
     if hasattr(st, "secrets") and "gcp_service_account" in st.secrets:
         info = dict(st.secrets["gcp_service_account"])
         scopes = [
@@ -24,6 +25,7 @@ def _get_credentials() -> Credentials:
             "https://www.googleapis.com/auth/drive",
         ]
         return Credentials.from_service_account_info(info, scopes=scopes)
+    # 備用：環境變數指向 JSON 檔路徑
     json_path = os.getenv("GOOGLE_APPLICATION_CREDENTIALS", "")
     if json_path and os.path.exists(json_path):
         scopes = [
@@ -31,10 +33,14 @@ def _get_credentials() -> Credentials:
             "https://www.googleapis.com/auth/drive",
         ]
         return Credentials.from_service_account_file(json_path, scopes=scopes)
-    raise RuntimeError("No Google credentials found. Set st.secrets['gcp_service_account'] or GOOGLE_APPLICATION_CREDENTIALS.")
+    raise RuntimeError(
+        "No Google credentials found. "
+        "Set st.secrets['gcp_service_account'] or GOOGLE_APPLICATION_CREDENTIALS."
+    )
 
 def _client() -> gspread.Client:
-    return gspread.authorize(_get_credentials())
+    creds = _get_credentials()
+    return gspread.authorize(creds)
 
 def _open_workbook():
     return _client().open_by_url(_get_sheet_url())
@@ -46,15 +52,16 @@ def _ensure_worksheet(sh: gspread.Spreadsheet, title: str, headers: List[str]) -
         ws = sh.add_worksheet(title=title, rows=2000, cols=max(10, len(headers)))
         ws.append_row(headers)
         return ws
+    # 確保第 1 列是正確表頭（保留舊資料）
     vals = ws.row_values(1)
     if [v.strip().lower() for v in vals] != [h.strip().lower() for h in headers]:
         ws.delete_rows(1)
-        ws.insert_row(headers, index=1)
+        ws.insert_row(headers, 1)
     return ws
 
-# --------------------------------
-# init
-# --------------------------------
+# -------------------------
+# 初始化
+# -------------------------
 def init_db():
     sh = _open_workbook()
     _ensure_worksheet(sh, RECORDS_SHEET, ["date", "week", "name", "type", "count"])
@@ -63,9 +70,9 @@ def init_target_table():
     sh = _open_workbook()
     _ensure_worksheet(sh, TARGETS_SHEET, ["month", "type", "target"])
 
-# --------------------------------
-# load
-# --------------------------------
+# -------------------------
+# 讀取全部 records
+# -------------------------
 def load_all_records() -> List[Dict[str, Any]]:
     sh = _open_workbook()
     ws = _ensure_worksheet(sh, RECORDS_SHEET, ["date", "week", "name", "type", "count"])
@@ -78,7 +85,7 @@ def load_all_records() -> List[Dict[str, Any]]:
         cnt  = r.get("count")
         wk   = r.get("week")
 
-        # date normalize
+        # 允許 2025-08-12 或 2025/08/12
         dt = None
         for fmt in ("%Y-%m-%d", "%Y/%m/%d"):
             try:
@@ -87,6 +94,7 @@ def load_all_records() -> List[Dict[str, Any]]:
                 break
             except Exception:
                 pass
+
         if dt and not wk:
             wk = dt.isocalendar().week
 
@@ -98,9 +106,9 @@ def load_all_records() -> List[Dict[str, Any]]:
         out.append(dict(date=dstr, week=wk, name=nm, type=tp, count=cnt))
     return out
 
-# --------------------------------
-# upsert
-# --------------------------------
+# -------------------------
+# upsert：同 (date,name,type) 就加總，否則新增
+# -------------------------
 def insert_or_update_record(date_str: str, name: str, tp: str, add_count: int):
     sh = _open_workbook()
     ws = _ensure_worksheet(sh, RECORDS_SHEET, ["date", "week", "name", "type", "count"])
@@ -109,8 +117,9 @@ def insert_or_update_record(date_str: str, name: str, tp: str, add_count: int):
     headers = [h.strip().lower() for h in data[0]] if data else ["date", "week", "name", "type", "count"]
     col = {h: i for i, h in enumerate(headers)}  # 0-based
 
-    target_row = None  # 1-based index for gspread
-    for i in range(1, len(data)):  # skip header
+    # 尋找是否已有同鍵
+    target_row = None  # gspread 1-based
+    for i in range(1, len(data)):  # 跳過 header
         row = data[i]
         d0 = (row[col.get("date", 0)] if col.get("date") is not None and col.get("date") < len(row) else "").strip()
         n0 = (row[col.get("name", 2)] if col.get("name") is not None and col.get("name") < len(row) else "").strip()
@@ -119,6 +128,7 @@ def insert_or_update_record(date_str: str, name: str, tp: str, add_count: int):
             target_row = i + 1
             break
 
+    # 週
     try:
         dt = datetime.strptime(date_str, "%Y-%m-%d")
         week = dt.isocalendar().week
@@ -132,6 +142,7 @@ def insert_or_update_record(date_str: str, name: str, tp: str, add_count: int):
         except Exception:
             old_count = 0
         ws.update_cell(target_row, col.get("count", 4) + 1, int(old_count) + int(add_count))
+        # 正規化欄位回寫
         ws.update_cell(target_row, col.get("date", 0) + 1, date_str)
         ws.update_cell(target_row, col.get("week", 1) + 1, week)
         ws.update_cell(target_row, col.get("name", 2) + 1, name)
@@ -139,9 +150,9 @@ def insert_or_update_record(date_str: str, name: str, tp: str, add_count: int):
     else:
         ws.append_row([date_str, week, name, tp, int(add_count)])
 
-# --------------------------------
-# delete  ✅ 這就是 data_management 要用的函式
-# --------------------------------
+# -------------------------
+# 刪除單筆（提供給 data_management）
+# -------------------------
 def delete_record(date_str: str, name: str, category: str) -> bool:
     """
     刪除第一筆符合 (date, name, type) 的列；回傳 True=刪除成功 / False=找不到。
@@ -168,9 +179,9 @@ def delete_record(date_str: str, name: str, category: str) -> bool:
             return True
     return False
 
-# --------------------------------
-# targets
-# --------------------------------
+# -------------------------
+# 目標值
+# -------------------------
 def get_target(month_ym: str, tp: str) -> int:
     sh = _open_workbook()
     ws = _ensure_worksheet(sh, TARGETS_SHEET, ["month", "type", "target"])
@@ -208,5 +219,3 @@ def set_target(month_ym: str, tp: str, target_val: int):
         ws.update_cell(target_row, col.get("type", 1) + 1, tp)
     else:
         ws.append_row([month_ym, tp, int(target_val)])
-
-
