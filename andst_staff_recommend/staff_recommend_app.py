@@ -230,7 +230,7 @@ def chart_title(label: str, year: int) -> str:
 
 
 # -----------------------------
-# 統計區塊（含 構成比 + スタッフ別 合計 + 週別合計 + 月別累計）
+# 統計區塊（含 構成比 + スタッフ別 合計 + 月別累計）
 # -----------------------------
 def show_statistics(category: str, label: str):
     """
@@ -243,7 +243,7 @@ def show_statistics(category: str, label: str):
     # 目標值（有 cache）
     target = get_target_safe(ym, "app" if category == "app" else "survey")
 
-    # === 目標區塊（沿用月度目標）===
+    # === 目標區塊（沿用月度目標） ===
     if category == "app":
         df_m_app = month_filter(df_all, ym)
         current_total = int(df_m_app[df_m_app["type"].isin(["new", "exist", "line"])]["count"].sum())
@@ -266,84 +266,34 @@ def show_statistics(category: str, label: str):
             if st.button(f"保存（{label}）"):
                 try:
                     set_target(ym, "app" if category == "app" else "survey", int(new_target))
+                    # 目標值快取刷新
                     get_target_safe.clear()
                     st.success("保存しました。")
                 except Exception as e:
                     st.error(f"保存失敗: {e}")
 
-    # === 週別合計（w）— 預設當月；可選 年 + 月 ===
-    st.subheader("週別合計（w）")
-
-    yearsW = year_options(df_all)
-    default_yearW = date.today().year if date.today().year in yearsW else yearsW[-1]
-
-    colY, colM = st.columns(2)
-    with colY:
-        yearW = st.selectbox(
-            "年（週集計）",
-            options=yearsW,
-            index=yearsW.index(default_yearW),
-            key=f"weekly_year_{category}",
-        )
-
-    months_in_year = sorted(
-        set(
-            df_all[df_all["date"].dt.year == int(yearW)]["date"]
-            .dt.strftime("%Y-%m")
-            .dropna()
-            .tolist()
-        )
-    )
-    if not months_in_year:
-        months_in_year = [f"{yearW}-{str(date.today().month).zfill(2)}"]
-
-    default_monthW = (
-        date.today().strftime("%Y-%m")
-        if (date.today().year == int(yearW) and date.today().strftime("%Y-%m") in months_in_year)
-        else months_in_year[-1]
-    )
-
-    with colM:
-        monthW = st.selectbox(
-            "月",
-            options=months_in_year,
-            index=months_in_year.index(default_monthW),
-            key=f"weekly_month_{category}",
-        )
-
-    df_monthW = df_all[df_all["date"].dt.strftime("%Y-%m") == monthW].copy()
-
-    if category == "app":
-        df_monthW = df_monthW[df_monthW["type"].isin(["new", "exist", "line"])]
+    # === 週別合計（保留月內的週統計表） ===
+    df_m_all = month_filter(df_all, ym).copy()
+    if not df_m_all.empty:
+        df_m_all["week"] = df_m_all["date"].dt.isocalendar().week
+        if category == "app":
+            df_w = df_m_all[df_m_all["type"].isin(["new", "exist", "line"])]
+        else:
+            df_w = df_m_all[df_m_all["type"] == "survey"]
+        weekly = df_w.groupby("week")["count"].sum().reset_index().sort_values("week")
+        weekly["w"] = weekly["week"].astype(int).apply(lambda w: int(_week_num_to_label(w)[1:]))
+        st.write("**週別合計**（w）：")
+        st.dataframe(weekly[["w", "count"]].rename(columns={"count": "合計"}), use_container_width=True)
     else:
-        df_monthW = df_monthW[df_monthW["type"] == "survey"]
-
-    if df_monthW.empty:
-        st.info("この月のデータがありません。")
-    else:
-        df_monthW["week_iso"] = df_monthW["date"].dt.isocalendar().week.astype(int)
-        df_monthW["w_num"] = df_monthW["week_iso"].apply(lambda w: int(_week_num_to_label(w)[1:]))
-
-        weekly = (
-            df_monthW.groupby("w_num")["count"]
-            .sum()
-            .reset_index()
-            .sort_values("w_num")
-        )
-
-        weekly["w"] = weekly["w_num"].apply(lambda x: f"w{x}")
-        out = weekly[["w", "count"]].rename(columns={"count": "合計"})
-
-        st.caption(f"表示中：{yearW}年・{monthW}")
-        st.dataframe(out, use_container_width=True)
+        st.info("今月のデータがありません。")
 
     # === 構成比（新規・既存・LINE）— 年份 + 期間（單週/單月/單年） ===
     if category == "app":
         st.subheader("構成比（新規・既存・LINE）")
-        colYc, colp1, colp2 = st.columns([1, 1, 2])
+        colY, colp1, colp2 = st.columns([1, 1, 2])
         years = year_options(df_all)
         default_year = date.today().year if date.today().year in years else years[-1]
-        with colYc:
+        with colY:
             year_sel = st.selectbox("年", options=years, index=years.index(default_year), key=f"comp_year_{category}")
         with colp1:
             ptype = st.selectbox(
@@ -386,10 +336,10 @@ def show_statistics(category: str, label: str):
 
     # === スタッフ別 合計 — 年份 + 期間（週/月/年） ===
     st.subheader("スタッフ別 合計")
-    colYs, cpt1, cpt2 = st.columns([1, 1, 2])
+    colY2, cpt1, cpt2 = st.columns([1, 1, 2])
     years2 = year_options(df_all)
     default_year2 = date.today().year if date.today().year in years2 else years2[-1]
-    with colYs:
+    with colY2:
         year_sel2 = st.selectbox("年", options=years2, index=years2.index(default_year2), key=f"staff_year_{category}")
     with cpt1:
         ptype2 = st.selectbox(
@@ -425,58 +375,60 @@ def show_statistics(category: str, label: str):
         )
         st.dataframe(staff_sum.rename(columns={"count": "合計"}), use_container_width=True)
 
-    # === 月別累計（年次）長條圖（柱上顯示數字、Y 細格線、英文月份簡寫） ===
-    st.subheader("月別累計（年次）")
-    years3 = year_options(df_all)
-    default_year3 = date.today().year if date.today().year in years3 else years3[-1]
-    year_sel3 = st.selectbox("年を選択", options=years3, index=years3.index(default_year3), key=f"monthly_year_{category}")
+   # === 月別累計（年次）長條圖 ===
+st.subheader("月別累計（年次）")
+years3 = year_options(df_all)
+default_year3 = date.today().year if date.today().year in years3 else years3[-1]
+year_sel3 = st.selectbox("年を選択", options=years3, index=years3.index(default_year3), key=f"monthly_year_{category}")
 
-    if category == "app":
-        df_year = df_all[(df_all["date"].dt.year == int(year_sel3)) & (df_all["type"].isin(["new", "exist", "line"]))]
-    else:
-        df_year = df_all[(df_all["date"].dt.year == int(year_sel3)) & (df_all["type"] == "survey")]
+if category == "app":
+    df_year = df_all[(df_all["date"].dt.year == int(year_sel3)) & (df_all["type"].isin(["new", "exist", "line"]))]
+else:
+    df_year = df_all[(df_all["date"].dt.year == int(year_sel3)) & (df_all["type"] == "survey")]
 
-    if df_year.empty:
-        st.info("対象データがありません。")
-    else:
-        import calendar
+if df_year.empty:
+    st.info("対象データがありません。")
+else:
+    import calendar
 
-        monthly = (
-            df_year.groupby(df_year["date"].dt.strftime("%Y-%m"))["count"]
-            .sum()
-            .reindex([f"{year_sel3}-{str(m).zfill(2)}" for m in range(1, 13)], fill_value=0)
+    # 產生 12 個月份的序列（即使沒資料也顯示 0）
+    monthly = (
+        df_year.groupby(df_year["date"].dt.strftime("%Y-%m"))["count"]
+        .sum()
+        .reindex([f"{year_sel3}-{str(m).zfill(2)}" for m in range(1, 13)], fill_value=0)
+    )
+
+    # X 軸：英文月份簡寫；Y：該月數值
+    labels = [calendar.month_abbr[int(s.split("-")[1])] for s in monthly.index.tolist()]  # Jan, Feb, ...
+    values = monthly.values.tolist()
+
+    plt.figure()
+    bars = plt.bar(labels, values)
+
+    # 加上 y 軸細網格線，幫助讀值
+    plt.grid(True, axis="y", linestyle="--", linewidth=0.5)
+
+    # X 標籤用英文縮寫就不需要旋轉
+    plt.xticks(rotation=0, ha="center")
+
+    # 標題（有日文字型→日文；無→英文，避免亂碼）
+    plt.title(chart_title(label, int(year_sel3)))
+
+    # 在每個長條上方標出數值
+    ymax = max(values) if values else 0
+    if ymax > 0:
+        plt.ylim(0, ymax * 1.15)  # 保留上方空間給數字
+    for bar, val in zip(bars, values):
+        plt.text(
+            bar.get_x() + bar.get_width() / 2,
+            bar.get_height(),
+            f"{int(val)}",
+            ha="center",
+            va="bottom",
+            fontsize=9,
         )
 
-        labels = [calendar.month_abbr[int(s.split("-")[1])] for s in monthly.index.tolist()]  # Jan, Feb, ...
-        values = monthly.values.tolist()
-
-        plt.figure()
-        bars = plt.bar(labels, values)
-
-        # Y 軸細網格線
-        plt.grid(True, axis="y", linestyle="--", linewidth=0.5)
-
-        # X 軸：英文縮寫
-        plt.xticks(rotation=0, ha="center")
-
-        # 標題（字型可用→日文；否則英文）
-        plt.title(chart_title(label, int(year_sel3)))
-
-        # 在每根柱子上顯示數字
-        ymax = max(values) if values else 0
-        if ymax > 0:
-            plt.ylim(0, ymax * 1.15)  # 保留上方空間
-        for bar, val in zip(bars, values):
-            plt.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height(),
-                f"{int(val)}",
-                ha="center",
-                va="bottom",
-                fontsize=9,
-            )
-
-        st.pyplot(plt.gcf())
+    st.pyplot(plt.gcf())
 
 
 # -----------------------------
@@ -602,3 +554,5 @@ with tab2:
 # -----------------------------
 with tab3:
     show_data_management()
+
+
