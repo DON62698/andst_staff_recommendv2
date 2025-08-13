@@ -363,4 +363,141 @@ def show_statistics(category: str, label: str):
     else:
         df_year = df_all[(df_all["date"].dt.year == int(year_sel3)) & (df_all["type"] == "survey")]
 
-    if df
+    if df_year.empty:
+        st.info("対象データがありません。")
+    else:
+        monthly = (
+            df_year.groupby(df_year["date"].dt.strftime("%Y-%m"))["count"]
+            .sum()
+            .reindex([f"{year_sel3}-{str(m).zfill(2)}" for m in range(1, 13)], fill_value=0)
+        )
+        plt.figure()
+        plt.bar(monthly.index.tolist(), monthly.values.tolist())
+        plt.xticks(rotation=45, ha="right")
+        plt.title(f"{label} 月別累計（{year_sel3}年）")
+        st.pyplot(plt.gcf())
+
+
+# -----------------------------
+# 表單：APP 推薦紀錄
+# -----------------------------
+with tab1:
+    st.subheader("入力（App 推薦）")
+    with st.form("app_form"):
+        # 名字選單置左、日期改放中間
+        c1, c2, c3 = st.columns([2, 2, 1])
+        with c1:
+            existing_names = st.session_state.names
+            if existing_names:
+                name_select = st.selectbox(
+                    "スタッフ名（選択）",
+                    options=existing_names,
+                    index=0,
+                    key="app_name_select"
+                )
+                st.caption("未登録の場合は下で新規入力")
+            else:
+                name_select = ""
+                st.info("登録済みの名前がありません。下で新規入力してください。")
+
+            name_new = st.text_input("スタッフ名（新規入力）", key="app_name_text").strip()
+            name = name_new or name_select
+        with c2:
+            d = st.date_input("日付", value=date.today())
+        with c3:
+            pass
+
+        coln1, coln2, coln3 = st.columns(3)
+        with coln1:
+            new_cnt = st.number_input("新規（件）", min_value=0, step=1, value=0)
+        with coln2:
+            exist_cnt = st.number_input("既存（件）", min_value=0, step=1, value=0)
+        with coln3:
+            line_cnt = st.number_input("LINE（件）", min_value=0, step=1, value=0)
+
+        submitted = st.form_submit_button("保存")
+        if submitted:
+            if not name:
+                st.warning("名前を入力してください。")
+            else:
+                total_cnt = int(new_cnt) + int(exist_cnt) + int(line_cnt)
+                try:
+                    if total_cnt == 0:
+                        # 只註冊名字（不寫入 records）；下次就能在下拉選到
+                        st.session_state.names = sorted(set(st.session_state.names) | {name})
+                        st.success("名前を登録しました。（データは追加していません）")
+                    else:
+                        if new_cnt > 0:
+                            insert_or_update_record(ymd(d), name, "new", int(new_cnt))
+                        if exist_cnt > 0:
+                            insert_or_update_record(ymd(d), name, "exist", int(exist_cnt))
+                        if line_cnt > 0:
+                            insert_or_update_record(ymd(d), name, "line", int(line_cnt))
+                        # 重新抓資料並同步名字清單（以資料為準）
+                        load_all_records_cached.clear()
+                        st.session_state.data = load_all_records_cached()
+                        st.session_state.names = names_from_records(st.session_state.data)
+                        st.success("保存しました。")
+                except Exception as e:
+                    st.error(f"保存失敗: {e}")
+
+    # 本月統計 + 視圖
+    show_statistics("app", "APP")
+
+
+# -----------------------------
+# 表單：アンケート（問卷取得件數）
+# -----------------------------
+with tab2:
+    st.subheader("入力（アンケート）")
+    with st.form("survey_form"):
+        # 名字選單置左、日期改放右
+        c1, c2 = st.columns([2, 2])
+        with c1:
+            existing_names2 = st.session_state.names
+            if existing_names2:
+                name_select2 = st.selectbox(
+                    "スタッフ名（選択）",
+                    options=existing_names2,
+                    index=0,
+                    key="survey_name_select"
+                )
+                st.caption("未登録の場合は下で新規入力")
+            else:
+                name_select2 = ""
+                st.info("登録済みの名前がありません。下で新規入力してください。")
+
+            name_new2 = st.text_input("スタッフ名（新規入力）", key="survey_name_text").strip()
+            name2 = name_new2 or name_select2
+        with c2:
+            d2 = st.date_input("日付", value=date.today(), key="survey_date")
+
+        cnt = st.number_input("アンケート（件）", min_value=0, step=1, value=0)
+        submitted2 = st.form_submit_button("保存")
+        if submitted2:
+            if not name2:
+                st.warning("名前を入力してください。")
+            else:
+                try:
+                    if int(cnt) == 0:
+                        # 只註冊名字（不寫入 records）
+                        st.session_state.names = sorted(set(st.session_state.names) | {name2})
+                        st.success("名前を登録しました。（データは追加していません）")
+                    else:
+                        insert_or_update_record(ymd(d2), name2, "survey", int(cnt))
+                        load_all_records_cached.clear()
+                        st.session_state.data = load_all_records_cached()
+                        st.session_state.names = names_from_records(st.session_state.data)
+                        st.success("保存しました。")
+                except Exception as e:
+                    st.error(f"保存失敗: {e}")
+
+    # 本月統計 + 視圖
+    show_statistics("survey", "アンケート")
+
+
+# -----------------------------
+# データ管理
+# -----------------------------
+with tab3:
+    show_data_management()
