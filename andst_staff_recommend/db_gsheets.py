@@ -205,4 +205,3 @@ def set_target(month_ym: str, tp: str, target_val: int):
         ws.append_row([month_ym, tp, int(target_val)])
 
 
-
