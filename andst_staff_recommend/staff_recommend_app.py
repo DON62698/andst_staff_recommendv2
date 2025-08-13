@@ -384,7 +384,7 @@ def show_statistics(category: str, label: str):
         plt.figure()
         plt.bar(monthly.index.tolist(), monthly.values.tolist())
         plt.xticks(rotation=45, ha="right")
-        plt.title(f"{label} 月別累計（{year_sel3}年）")
+        plt.title(f"{label} Monthly totals（{year_sel3}年）")
         st.pyplot(plt.gcf())
 
 
