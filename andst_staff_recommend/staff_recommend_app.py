@@ -189,7 +189,7 @@ init_session()
 # -----------------------------
 st.title("and st 統計記録")
 # （可選）強制刷新鈕
-if st.button("🔄 重新整理資料", use_container_width=False):
+if st.button("リセット", use_container_width=False):
     load_all_records_cached.clear()
     st.session_state.data = load_all_records_cached()
     st.rerun()
@@ -389,7 +389,7 @@ def show_statistics(category: str, label: str):
 # 表單：APP 推薦紀錄
 # -----------------------------
 with tab1:
-    st.subheader("入力（App 推薦）")
+    st.subheader("and st 会員登録")
     with st.form("app_form"):
         c1, c2, c3 = st.columns([2, 2, 1])
         with c1:
