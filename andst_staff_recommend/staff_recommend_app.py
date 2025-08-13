@@ -187,7 +187,7 @@ init_session()
 # -----------------------------
 # 版頭
 # -----------------------------
-st.title("and st 統計記録")
+st.title("and st 統計記録 Team Men's")
 # （可選）強制刷新鈕
 if st.button("リセット", use_container_width=False):
     load_all_records_cached.clear()
@@ -235,7 +235,7 @@ def show_statistics(category: str, label: str):
                     st.error(f"保存失敗: {e}")
 
     # === 週別合計（w）— 預設當月；可選 年 + 月 ===
-    st.subheader("週別合計（w）")
+    st.subheader("週別合計")
     yearsW = year_options(df_all)
     default_yearW = date.today().year if date.today().year in yearsW else yearsW[-1]
 
@@ -439,7 +439,7 @@ with tab1:
 # 表單：アンケート（問卷取得件數）
 # -----------------------------
 with tab2:
-    st.subheader("入力（アンケート）")
+    st.subheader("アンケート")
     with st.form("survey_form"):
         c1, c2 = st.columns([2, 2])
         with c1:
