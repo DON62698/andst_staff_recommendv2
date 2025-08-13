@@ -602,6 +602,3 @@ with tab2:
 # -----------------------------
 with tab3:
     show_data_management()
-
-
-
