@@ -460,7 +460,9 @@ def show_statistics(category: str, label: str):
         plt.xticks(rotation=0, ha="center")
 
         # 標題（字型可用→日文；否則英文）
-        plt.title(chart_title(label, int(year_sel3)))
+        title_label = "and st" if category == "app" else "Survey"
+        plt.title(f"{title_label} Monthly totals ({int(year_sel3)})")
+        
 
         # 在每根柱子上顯示數字
         ymax = max(values) if values else 0
