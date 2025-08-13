@@ -352,10 +352,10 @@ def show_statistics(category: str, label: str):
 
     if category == "app":
         df_year = df_all[(df_all["date"].dt.year == int(year_sel3)) & (df_all["type"].isin(["new", "exist", "line"]))]
-        title_label = "and st"
+        title_label = "and st"  # <<< CHANGED：App 圖表標題固定成 and st（英文）
     else:
         df_year = df_all[(df_all["date"].dt.year == int(year_sel3)) & (df_all["type"] == "survey")]
-        title_label = "Survey"
+        title_label = "Survey"  # <<< CHANGED：問卷圖表標題固定全英文
 
     if df_year.empty:
         st.info("対象データがありません。")
@@ -373,7 +373,8 @@ def show_statistics(category: str, label: str):
         bars = plt.bar(labels, values)
         plt.grid(True, axis="y", linestyle="--", linewidth=0.5)
         plt.xticks(rotation=0, ha="center")
-        # <<< 這裡直接固定英文標題，App = and st / Survey = Survey >>>
+
+        # <<< CHANGED：這裡直接用英文固定好的 title_label，避免任何亂碼 >>>
         plt.title(f"{title_label} Monthly totals ({int(year_sel3)})")
 
         ymax = max(values) if values else 0
@@ -382,6 +383,7 @@ def show_statistics(category: str, label: str):
         for bar, val in zip(bars, values):
             plt.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f"{int(val)}", ha="center", va="bottom", fontsize=9)
 
+        plt.tight_layout()  # <<< CHANGED：下載圖片時不會被裁切
         st.pyplot(plt.gcf())
 
 
@@ -462,15 +464,11 @@ with tab2:
                 st.warning("名前を入力してください。")
             else:
                 try:
-                    if int(cnt) == 0:
-                        st.session_state.names = sorted(set(st.session_state.names) | {name2})
-                        st.success("名前を登録しました。（データは追加していません）")
-                    else:
-                        insert_or_update_record(ymd(d2), name2, "survey", int(cnt))
-                        load_all_records_cached.clear()
-                        st.session_state.data = load_all_records_cached()
-                        st.session_state.names = names_from_records(st.session_state.data)
-                        st.success("保存しました。")
+                    insert_or_update_record(ymd(d2), name2, "survey", int(cnt))
+                    load_all_records_cached.clear()
+                    st.session_state.data = load_all_records_cached()
+                    st.session_state.names = names_from_records(st.session_state.data)
+                    st.success("保存しました。")
                 except Exception as e:
                     st.error(f"保存失敗: {e}")
 
