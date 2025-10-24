@@ -1,40 +1,62 @@
-import streamlit as st
-import pandas as pd
+# -*- coding: utf-8 -*-
+import os
 from datetime import date
+import uuid
+import calendar
+
+import pandas as pd
+import streamlit as st
 import matplotlib.pyplot as plt
 
-# --- 強制載入專案內的日文字型（避免標題/括號/年 亂碼） ---
-import os
+# -----------------------------
+# Page config & title (no icon/emojis)
+# -----------------------------
+try:
+    st.set_page_config(page_title="and st 統計 Team Men's", layout="centered")
+except Exception:
+    pass
+
+st.title("and st Men's")
+
+# -----------------------------
+# Japanese font (best-effort; avoid mojibake in UI texts)
+# (Charts use EN labels so mojibake won't appear there)
+# -----------------------------
 from matplotlib import font_manager, rcParams
 
 JP_FONT_READY = False
+try_candidates = [
+    os.path.join(os.path.dirname(__file__), "fonts", "NotoSansJP-Regular.otf"),
+    os.path.join(os.path.dirname(__file__), "NotoSansJP-Regular.otf"),
+    "/mnt/data/NotoSansJP-Regular.otf",
+]
 try:
-    # 依你的專案結構放置字型：andst_staff_recommend/fonts/NotoSansJP-Regular.otf
-    font_path = os.path.join(os.path.dirname(__file__), "fonts", "NotoSansJP-Regular.otf")
-    font_manager.fontManager.addfont(font_path)
-    _prop = font_manager.FontProperties(fname=font_path)
-    rcParams["font.family"] = _prop.get_name()
-    JP_FONT_READY = True
-except Exception:
-    JP_FONT_READY = False  # 找不到字型檔就維持 False
-
-# 若專案沒放字型，再嘗試系統已裝字型（雲端環境常常沒有）
-if not JP_FONT_READY:
-    _JP_FONT_CANDIDATES = [
-        "Noto Sans CJK JP", "Noto Sans JP", "IPAGothic", "IPAexGothic",
-        "TakaoGothic", "Yu Gothic", "Hiragino Sans", "Meiryo", "MS Gothic",
-        "PingFang TC", "PingFang SC", "Heiti TC", "Heiti SC"
-    ]
-    available = {f.name for f in font_manager.fontManager.ttflist}
-    for _name in _JP_FONT_CANDIDATES:
-        if _name in available:
-            rcParams["font.family"] = _name
+    for fp in try_candidates:
+        if os.path.exists(fp):
+            font_manager.fontManager.addfont(fp)
+            _prop = font_manager.FontProperties(fname=fp)
+            rcParams["font.family"] = _prop.get_name()
             JP_FONT_READY = True
             break
+    if not JP_FONT_READY:
+        _JP_FONT_CANDIDATES = [
+            "Noto Sans CJK JP", "Noto Sans JP", "IPAGothic", "IPAexGothic",
+            "TakaoGothic", "Yu Gothic", "Hiragino Sans", "Meiryo", "MS Gothic",
+        ]
+        available = {f.name for f in font_manager.fontManager.ttflist}
+        for _name in _JP_FONT_CANDIDATES:
+            if _name in available:
+                rcParams["font.family"] = _name
+                JP_FONT_READY = True
+                break
+except Exception:
+    JP_FONT_READY = False
 
-rcParams["axes.unicode_minus"] = False  # 避免負號亂碼
+rcParams["axes.unicode_minus"] = False
 
-# ✅ Google Sheets 後端
+# -----------------------------
+# Backend（reuse your modules）
+# -----------------------------
 from db_gsheets import (
     init_db,
     init_target_table,
@@ -43,13 +65,10 @@ from db_gsheets import (
     get_target,
     set_target,
 )
-
-# ✅ 資料管理頁
 from data_management import show_data_management
 
-
 # -----------------------------
-# Cache / 初始化（避免每次互動都狂打 API）
+# Cache / Init
 # -----------------------------
 @st.cache_resource
 def _init_once():
@@ -68,9 +87,8 @@ def get_target_safe(month: str, category: str) -> int:
     except Exception:
         return 0
 
-
 # -----------------------------
-# 共用工具
+# Utils
 # -----------------------------
 def ymd(d: date) -> str:
     return d.strftime("%Y-%m-%d")
@@ -92,38 +110,27 @@ def month_filter(df: pd.DataFrame, ym: str) -> pd.DataFrame:
         return df.iloc[0:0]
     return df[(df["date"].dt.strftime("%Y-%m") == ym)]
 
-def names_from_records(records) -> list[str]:
+def names_from_records(records) -> list:
     return sorted({(r.get("name") or "").strip() for r in (records or []) if r.get("name")})
 
-# ---- 年份 / 週處理 ----
-def year_options(df: pd.DataFrame) -> list[int]:
+# ---- Year / Week helpers ----
+def year_options(df: pd.DataFrame) -> list:
     if "date" not in df.columns or df["date"].isna().all():
         return [date.today().year]
     years = sorted(set(df["date"].dropna().dt.year.astype(int).tolist()))
-    if not years:
-        years = [date.today().year]
-    return years
+    return years or [date.today().year]
 
-def _week_num_to_label(w: int) -> str:
-    w = int(w); w_display = ((w - 1) % 52) + 1
-    return f"w{w_display}"
+def _week_label(week_number: int) -> str:
+    """ISO week label like 40 -> 'w40'"""
+    return f"w{int(week_number)}"
 
-def _labels_for_weeks(weeks: list[int]) -> list[str]:
-    return sorted({_week_num_to_label(w) for w in weeks}, key=lambda s: int(s[1:]))
-
-def _actual_weeks_for_label(df_year: pd.DataFrame, label: str) -> list[int]:
-    if "date" not in df_year.columns or df_year.empty:
-        return []
-    iso_weeks = sorted(set(df_year["date"].dt.isocalendar().week.astype(int).tolist()))
-    want = int(label.lower().lstrip("w"))
-    return [w for w in iso_weeks if int(_week_num_to_label(w)[1:]) == want]
-
-# ---- 期間選項 / 過濾 ----
 def _period_options(df: pd.DataFrame, mode: str, selected_year: int):
+    """Options for (週/単週, 月/単月, 年/単年) selectors."""
     if "date" not in df.columns or df["date"].isna().all():
         today = date.today()
         if mode == "週（単週）":
-            return [f"w{today.isocalendar().week if today.isocalendar().week <= 52 else 1}"], f"w{today.isocalendar().week if today.isocalendar().week <= 52 else 1}"
+            ww = today.isocalendar().week
+            return [f"w{ww}"], f"w{ww}"
         elif mode == "月（単月）":
             dft = today.strftime("%Y-%m"); return [dft], dft
         else:
@@ -133,9 +140,8 @@ def _period_options(df: pd.DataFrame, mode: str, selected_year: int):
     if mode == "週（単週）":
         dyear = dfx[dfx["date"].dt.year == int(selected_year)]
         weeks = sorted(set(dyear["date"].dt.isocalendar().week.astype(int).tolist()))
-        labels = _labels_for_weeks(weeks) or ["w1"]
-        today_w = date.today().isocalendar().week
-        default = f"w{today_w if today_w <= 52 else 1}"
+        labels = [f"w{w}" for w in weeks] or [f"w{date.today().isocalendar().week}"]
+        default = f"w{date.today().isocalendar().week}"
         if default not in labels: default = labels[0]
         return labels, default
     elif mode == "月（単月）":
@@ -145,7 +151,7 @@ def _period_options(df: pd.DataFrame, mode: str, selected_year: int):
         default = date.today().strftime("%Y-%m") if date.today().year == int(selected_year) else months[-1]
         if default not in months: default = months[0]
         return months, default
-    else:  # 年（単年）
+    else:  # 年
         ys = year_options(dfx)
         default = date.today().year if date.today().year in ys else ys[-1]
         return ys, default
@@ -156,36 +162,30 @@ def _filter_by_period(df: pd.DataFrame, mode: str, value, selected_year: int) ->
     dfx = df.dropna(subset=["date"]).copy()
     if mode == "週（単週）":
         dyear = dfx[dfx["date"].dt.year == int(selected_year)]
-        weeks = _actual_weeks_for_label(dyear, str(value))
-        if not weeks: return dyear.iloc[0:0]
-        return dyear[dyear["date"].dt.isocalendar().week.isin(weeks)]
+        try:
+            want = int(str(value).lower().lstrip("w"))
+        except Exception:
+            return dyear.iloc[0:0]
+        return dyear[dyear["date"].dt.isocalendar().week.astype(int).isin([want])]
     elif mode == "月（単月）":
         dyear = dfx[dfx["date"].dt.year == int(selected_year)]
         return dyear[dyear["date"].dt.strftime("%Y-%m") == str(value)]
     else:
         return dfx[dfx["date"].dt.year == int(selected_year)]
 
-
 # -----------------------------
-# Session 初始化
+# Session init
 # -----------------------------
 def init_session():
     if "data" not in st.session_state:
         st.session_state.data = load_all_records_cached()
     if "names" not in st.session_state:
         st.session_state.names = names_from_records(st.session_state.data)
-    if "app_target" not in st.session_state:
-        st.session_state.app_target = 0
-    if "survey_target" not in st.session_state:
-        st.session_state.survey_target = 0
 
-# ✅ 只做一次外部初始化
 _init_once()
-# ✅ 每次 rerun 都整理好 UI 狀態
 init_session()
 
 def render_refresh_button(btn_key: str = "refresh_btn"):
-    # 右側窄欄，讓按鈕看起來在右下角
     spacer, right = st.columns([12, 1])
     with right:
         if st.button("↻", key=btn_key, help="重新整理資料"):
@@ -193,67 +193,66 @@ def render_refresh_button(btn_key: str = "refresh_btn"):
             st.session_state.data = load_all_records_cached()
             st.rerun()
 
+# -----------------------------
+# Progress meter (no emojis; charts remain EN)
+# -----------------------------
+def render_rate_block(category: str, label: str, current_total: int, target: int, ym: str):
+    """
+    Progress meter + target editor (UI may be JP; charts use EN).
+    category: "app" or "survey"
+    """
+    pct = 0 if target <= 0 else min(100.0, round(current_total * 100.0 / max(1, target), 1))
+    bar_id = f"meter_{category}_{uuid.uuid4().hex[:6]}"
+
+    st.markdown(
+        f"""
+<div style="font-size:14px;opacity:.85;">
+  {ym} の累計：<b>{current_total}</b> 件 ／ 目標：<b>{target}</b> 件
+</div>
+<div id="{bar_id}" style="
+  margin-top:8px;height:18px;border-radius:9px;
+  background:rgba(0,0,0,.10);overflow:hidden;">
+  <div style="height:100%;width:{pct}%;
+    background:linear-gradient(90deg,#16a34a,#22c55e,#4ade80);
+    box-shadow:0 0 12px rgba(34,197,94,.45) inset;"></div>
+</div>
+<div style="margin-top:6px;font-size:13px;opacity:.8;">
+  達成率：<b>{pct:.1f}%</b>
+</div>
+""",
+        unsafe_allow_html=True,
+    )
+
+    with st.popover(f"目標を設定/更新（{label}）", use_container_width=True):
+        new_target = st.number_input("月目標", min_value=0, step=1, value=int(target), key=f"target_input_{category}")
+        if st.button("保存", key=f"target_save_{category}"):
+            try:
+                set_target(ym, "app" if category == "app" else "survey", int(new_target))
+                try:
+                    get_target_safe.clear()  # ignore if not cached
+                except Exception:
+                    pass
+                st.success("保存しました。")
+            except Exception as e:
+                st.error(f"保存失敗: {e}")
 
 # -----------------------------
-# 版頭
-# -----------------------------
-st.title("and st 統計記録 Team Men's")
-
-tab1, tab2, tab3 = st.tabs(["APP推薦紀錄", "アンケート紀錄", "データ管理"])
-
-# -----------------------------
-# 統計區塊（含 構成比 + スタッフ別 合計 + 週別合計 + 月別累計）
+# Analysis (mirrors women's structure; chart labels in EN)
 # -----------------------------
 def show_statistics(category: str, label: str):
     df_all = ensure_dataframe(st.session_state.data)
     ym = current_year_month()
 
-    # 目標值
-    target = get_target_safe(ym, "app" if category == "app" else "survey")
-
-    # === 目標區塊 ===
-    if category == "app":
-        df_m_app = month_filter(df_all, ym)
-        current_total = int(df_m_app[df_m_app["type"].isin(["new", "exist", "line"])]["count"].sum())
-    else:
-        df_m = month_filter(df_all, ym)
-        current_total = int(df_m[df_m["type"] == "survey"]["count"].sum())
-
-    st.subheader(f"{label}（{ym}）")
-    colA, colB = st.columns([2, 1])
-    with colA:
-        st.write(f"今月累計：**{current_total}** 件")
-        if target > 0:
-            ratio = min(1.0, current_total / max(1, target))
-            st.progress(ratio, text=f"目標 {target} 件・達成率 {ratio*100:.1f}%")
-        else:
-            st.info("目標未設定")
-    with colB:
-        with st.popover("🎯 目標を設定/更新"):
-            new_target = st.number_input("今月目標", min_value=0, step=1, value=int(target))
-            if st.button(f"保存（{label}）"):
-                try:
-                    set_target(ym, "app" if category == "app" else "survey", int(new_target))
-                    get_target_safe.clear()
-                    st.success("保存しました。")
-                except Exception as e:
-                    st.error(f"保存失敗: {e}")
-
-    # === 週別合計（w）— 預設當月；可選 年 + 月 ===
+    # --- Weekly totals table (JP UI OK; data labels are plain digits) ---
     st.subheader("週別合計")
     yearsW = year_options(df_all)
     default_yearW = date.today().year if date.today().year in yearsW else yearsW[-1]
-
     colY, colM = st.columns(2)
     with colY:
         yearW = st.selectbox("年（週集計）", options=yearsW, index=yearsW.index(default_yearW), key=f"weekly_year_{category}")
-
     months_in_year = sorted(set(
         df_all[df_all["date"].dt.year == int(yearW)]["date"].dt.strftime("%Y-%m").dropna().tolist()
-    ))
-    if not months_in_year:
-        months_in_year = [f"{yearW}-{str(date.today().month).zfill(2)}"]
-
+    )) or [f"{yearW}-{str(date.today().month).zfill(2)}"]
     default_monthW = (
         date.today().strftime("%Y-%m")
         if (date.today().year == int(yearW) and date.today().strftime("%Y-%m") in months_in_year)
@@ -271,15 +270,62 @@ def show_statistics(category: str, label: str):
     if df_monthW.empty:
         st.info("この月のデータがありません。")
     else:
-        df_monthW["week_iso"] = df_monthW["date"].dt.isocalendar().week.astype(int)
-        df_monthW["w_num"] = df_monthW["week_iso"].apply(lambda w: int(_week_num_to_label(w)[1:]))
-
-        weekly = df_monthW.groupby("w_num")["count"].sum().reset_index().sort_values("w_num")
-        weekly["w"] = weekly["w_num"].apply(lambda x: f"w{x}")
+        df_monthW["iso_week"] = df_monthW["date"].dt.isocalendar().week.astype(int)
+        weekly = df_monthW.groupby("iso_week")["count"].sum().reset_index().sort_values("iso_week")
+        weekly["w"] = weekly["iso_week"].map(_week_label)
         st.caption(f"表示中：{yearW}年・{monthW}")
         st.dataframe(weekly[["w", "count"]].rename(columns={"count": "合計"}), use_container_width=True)
 
-    # === 構成比（新規・既存・LINE）— 年份 + 期間 ===
+    # --- Daily by selected week (YOUR NEW REQUEST) ---
+    st.subheader("日別（週選択）")
+    yearsD = year_options(df_all)
+    default_yearD = date.today().year if date.today().year in yearsD else yearsD[-1]
+    colDY, colDW = st.columns([1, 1])
+    with colDY:
+        yearD = st.selectbox("年（日別・週選択）", options=yearsD, index=yearsD.index(default_yearD), key=f"daily_year_{category}")
+
+    df_yearD = df_all[df_all["date"].dt.year == int(yearD)].copy()
+    if category == "app":
+        df_yearD = df_yearD[df_yearD["type"].isin(["new", "exist", "line"])]
+    else:
+        df_yearD = df_yearD[df_yearD["type"] == "survey"]
+
+    weeksD = sorted(set(df_yearD["date"].dropna().dt.isocalendar().week.astype(int).tolist()))
+    week_labels = [f"w{w}" for w in weeksD] or [f"w{date.today().isocalendar().week}"]
+    default_wlabel = f"w{date.today().isocalendar().week}"
+    if default_wlabel not in week_labels:
+        default_wlabel = week_labels[0]
+    with colDW:
+        sel_week_label = st.selectbox("週（wXX）", options=week_labels, index=week_labels.index(default_wlabel), key=f"daily_week_{category}")
+
+    try:
+        sel_week_num = int(sel_week_label.lstrip("w"))
+    except Exception:
+        sel_week_num = date.today().isocalendar().week
+
+    df_week = df_yearD.copy()
+    df_week["iso_week"] = df_week["date"].dt.isocalendar().week.astype(int)
+    df_week = df_week[df_week["iso_week"] == sel_week_num].copy()
+    df_week["weekday"] = df_week["date"].dt.weekday  # 0=Mon..6=Sun
+
+    daily = df_week.groupby("weekday")["count"].sum().reindex(range(7), fill_value=0).reset_index()
+    daily["label"] = daily["weekday"].map({0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"})
+
+    # EN-only chart labels to avoid mojibake
+    fig = plt.figure()
+    plt.plot(daily["label"], daily["count"], marker="o")
+    plt.xlabel("Day of Week")
+    plt.title(f"{label} Daily Totals: {yearD} {sel_week_label}")
+    plt.ylabel("Count")
+    st.pyplot(fig, clear_figure=True)
+
+    # numbers table (EN column headers)
+    st.dataframe(
+        daily[["label", "count"]].rename(columns={"label": "Day", "count": "Total"}),
+        use_container_width=True
+    )
+
+    # --- Composition pie (App only; EN labels) ---
     if category == "app":
         st.subheader("構成比（新規・既存・LINE）")
         colYc, colp1, colp2 = st.columns([1, 1, 2])
@@ -296,7 +342,6 @@ def show_statistics(category: str, label: str):
 
         df_comp_base = df_all[df_all["type"].isin(["new", "exist", "line"])].copy()
         df_comp = _filter_by_period(df_comp_base, ptype, sel, year_sel)
-
         new_sum  = int(df_comp[df_comp["type"] == "new"]["count"].sum())
         exist_sum= int(df_comp[df_comp["type"] == "exist"]["count"].sum())
         line_sum = int(df_comp[df_comp["type"] == "line"]["count"].sum())
@@ -305,13 +350,14 @@ def show_statistics(category: str, label: str):
         if total > 0:
             st.caption(f"表示中：{year_sel}年" if ptype=="年（単年）" else f"表示中：{year_sel}年・{sel}")
             plt.figure()
-            labels = ["新規", "既存", "LINE"] if JP_FONT_READY else ["new", "exist", "LINE"]
+            labels = ["New", "Exist", "LINE"]  # EN labels
             plt.pie([new_sum, exist_sum, line_sum], labels=labels, autopct="%1.1f%%", startangle=90)
+            plt.title("Composition (New / Exist / LINE)")
             st.pyplot(plt.gcf())
         else:
             st.info("対象データがありません。")
 
-    # === スタッフ別 合計 — 年份 + 期間（週/月/年） ===
+    # --- By Staff totals (table) ---
     st.subheader("スタッフ別 合計")
     colYs, cpt1, cpt2 = st.columns([1, 1, 2])
     years2 = year_options(df_all)
@@ -335,7 +381,6 @@ def show_statistics(category: str, label: str):
     if df_staff.empty:
         st.info("対象データがありません。")
     else:
-        # 只讓第 1 名顯示 👑
         staff_sum = (
             df_staff.groupby("name")["count"].sum()
             .reset_index()
@@ -345,11 +390,10 @@ def show_statistics(category: str, label: str):
         staff_sum.insert(0, "順位", staff_sum.index + 1)
         if len(staff_sum) > 0:
             staff_sum.loc[0, "順位"] = f"{staff_sum.loc[0, '順位']} 👑"
-
         staff_sum = staff_sum.rename(columns={"name": "スタッフ", "count": "合計"})
         st.dataframe(staff_sum[["順位", "スタッフ", "合計"]], use_container_width=True)
 
-    # === 月別累計（年次）長條圖（顯數字、Y 細格線、英文月份簡寫） ===
+    # --- Monthly totals (year view) - EN chart labels ---
     st.subheader("月別累計（年次）")
     years3 = year_options(df_all)
     default_year3 = date.today().year if date.today().year in years3 else years3[-1]
@@ -365,72 +409,78 @@ def show_statistics(category: str, label: str):
     if df_year.empty:
         st.info("対象データがありません。")
     else:
-        import calendar
         monthly = (
             df_year.groupby(df_year["date"].dt.strftime("%Y-%m"))["count"]
             .sum()
             .reindex([f"{year_sel3}-{str(m).zfill(2)}" for m in range(1, 13)], fill_value=0)
         )
-        labels = [calendar.month_abbr[int(s.split("-")[1])] for s in monthly.index.tolist()]  # Jan, Feb, ...
+        labels = [calendar.month_abbr[int(s.split("-")[1])] for s in monthly.index.tolist()]
         values = monthly.values.tolist()
 
         plt.figure()
         bars = plt.bar(labels, values)
         plt.grid(True, axis="y", linestyle="--", linewidth=0.5)
         plt.xticks(rotation=0, ha="center")
-        # <<< 這裡直接固定英文標題，App = and st / Survey = Survey >>>
         plt.title(f"{title_label} Monthly totals ({int(year_sel3)})")
-
         ymax = max(values) if values else 0
         if ymax > 0:
             plt.ylim(0, ymax * 1.15)
         for bar, val in zip(bars, values):
             plt.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f"{int(val)}", ha="center", va="bottom", fontsize=9)
-
         st.pyplot(plt.gcf())
 
+# -----------------------------
+# Tabs (match women's structure): 件数登録 / and st 分析 / アンケート分析 / データ管理
+# -----------------------------
+tab_reg, tab3, tab4, tab5 = st.tabs(["件数登録", "and st 分析", "アンケート分析", "データ管理"])
 
 # -----------------------------
-# 表單：APP 推薦紀錄
+# 件数登録（and st + アンケート 合併）
 # -----------------------------
-with tab1:
-    st.subheader("and st 会員登録")
-    with st.form("app_form"):
-        c1, c2, c3 = st.columns([2, 2, 1])
+with tab_reg:
+    st.subheader("件数登録")
+    with st.form("reg_form"):
+        c1, c2 = st.columns([2, 2])
         with c1:
             existing_names = st.session_state.names
             if existing_names:
-                name_select = st.selectbox("スタッフ名（選択）", options=existing_names, index=0, key="app_name_select")
+                name_select = st.selectbox("スタッフ名（選択）", options=existing_names, index=0, key="reg_name_select")
                 st.caption("未登録の場合は下で新規入力")
             else:
                 name_select = ""
                 st.info("登録済みの名前がありません。下で新規入力してください。")
-            name_new = st.text_input("スタッフ名（新規入力）", key="app_name_text").strip()
+            name_new = st.text_input("スタッフ名（新規入力）", key="reg_name_text").strip()
             name = name_new or name_select
         with c2:
-            d = st.date_input("日付", value=date.today())
-        with c3:
-            pass
+            d = st.date_input("日付", value=date.today(), key="reg_date")
 
+        st.markdown("#### and st（新規 / 既存 / LINE）")
         coln1, coln2, coln3 = st.columns(3)
-        with coln1: new_cnt = st.number_input("新規（件）", min_value=0, step=1, value=0)
-        with coln2: exist_cnt = st.number_input("既存（件）", min_value=0, step=1, value=0)
-        with coln3: line_cnt = st.number_input("LINE（件）", min_value=0, step=1, value=0)
+        with coln1: new_cnt = st.number_input("新規（件）", min_value=0, step=1, value=0, key="reg_new")
+        with coln2: exist_cnt = st.number_input("既存（件）", min_value=0, step=1, value=0, key="reg_exist")
+        with coln3: line_cnt = st.number_input("LINE（件）", min_value=0, step=1, value=0, key="reg_line")
+
+        st.markdown("#### アンケート")
+        survey_cnt = st.number_input("アンケート（件）", min_value=0, step=1, value=0, key="reg_survey")
 
         submitted = st.form_submit_button("保存")
         if submitted:
             if not name:
                 st.warning("名前を入力してください。")
             else:
-                total_cnt = int(new_cnt) + int(exist_cnt) + int(line_cnt)
                 try:
-                    if total_cnt == 0:
+                    # and st
+                    if int(new_cnt) > 0:   insert_or_update_record(ymd(d), name, "new",   int(new_cnt))
+                    if int(exist_cnt) > 0: insert_or_update_record(ymd(d), name, "exist", int(exist_cnt))
+                    if int(line_cnt)  > 0: insert_or_update_record(ymd(d), name, "line",  int(line_cnt))
+                    # アンケート
+                    if int(survey_cnt) > 0: insert_or_update_record(ymd(d), name, "survey", int(survey_cnt))
+
+                    # If all zero, just register name
+                    if sum([int(new_cnt), int(exist_cnt), int(line_cnt), int(survey_cnt)]) == 0:
                         st.session_state.names = sorted(set(st.session_state.names) | {name})
                         st.success("名前を登録しました。（データは追加していません）")
                     else:
-                        if new_cnt > 0:   insert_or_update_record(ymd(d), name, "new",   int(new_cnt))
-                        if exist_cnt > 0: insert_or_update_record(ymd(d), name, "exist", int(exist_cnt))
-                        if line_cnt > 0:  insert_or_update_record(ymd(d), name, "line",  int(line_cnt))
                         load_all_records_cached.clear()
                         st.session_state.data = load_all_records_cached()
                         st.session_state.names = names_from_records(st.session_state.data)
@@ -438,56 +488,50 @@ with tab1:
                 except Exception as e:
                     st.error(f"保存失敗: {e}")
 
-    show_statistics("app", "APP")
-    render_refresh_button("refresh_app_tab")
+    # --- Monthly progress bars (and st / survey) ---
+    df_all = ensure_dataframe(st.session_state.data)
+    ym = current_year_month()
+    df_m = month_filter(df_all, ym)
+    app_total = int(df_m[df_m["type"].isin(["new", "exist", "line"])]["count"].sum())
+    survey_total = int(df_m[df_m["type"] == "survey"]["count"].sum())
+    try:
+        app_target = get_target(ym, "app")
+    except Exception:
+        app_target = 0
+    try:
+        survey_target = get_target(ym, "survey")
+    except Exception:
+        survey_target = 0
 
+    st.markdown("### 達成率")
+    _c1, _c2 = st.columns(2)
+    with _c1:
+        st.caption("and st")
+        render_rate_block("app", "and st", app_total, app_target, ym)
+    with _c2:
+        st.caption("アンケート")
+        render_rate_block("survey", "アンケート", survey_total, survey_target, ym)
+
+    render_refresh_button("refresh_reg_tab")
 
 # -----------------------------
-# 表單：アンケート（問卷取得件數）
+# and st 分析
 # -----------------------------
-with tab2:
-    st.subheader("アンケート")
-    with st.form("survey_form"):
-        c1, c2 = st.columns([2, 2])
-        with c1:
-            existing_names2 = st.session_state.names
-            if existing_names2:
-                name_select2 = st.selectbox("スタッフ名（選択）", options=existing_names2, index=0, key="survey_name_select")
-                st.caption("未登録の場合は下で新規入力")
-            else:
-                name_select2 = ""
-                st.info("登録済みの名前がありません。下で新規入力してください。")
-            name_new2 = st.text_input("スタッフ名（新規入力）", key="survey_name_text").strip()
-            name2 = name_new2 or name_select2
-        with c2:
-            d2 = st.date_input("日付", value=date.today(), key="survey_date")
+with tab3:
+    show_statistics("app", "and st")
 
-        cnt = st.number_input("アンケート（件）", min_value=0, step=1, value=0)
-        submitted2 = st.form_submit_button("保存")
-        if submitted2:
-            if not name2:
-                st.warning("名前を入力してください。")
-            else:
-                try:
-                    if int(cnt) == 0:
-                        st.session_state.names = sorted(set(st.session_state.names) | {name2})
-                        st.success("名前を登録しました。（データは追加していません）")
-                    else:
-                        insert_or_update_record(ymd(d2), name2, "survey", int(cnt))
-                        load_all_records_cached.clear()
-                        st.session_state.data = load_all_records_cached()
-                        st.session_state.names = names_from_records(st.session_state.data)
-                        st.success("保存しました。")
-                except Exception as e:
-                    st.error(f"保存失敗: {e}")
-
+# -----------------------------
+# アンケート分析
+# -----------------------------
+with tab4:
     show_statistics("survey", "アンケート")
-    render_refresh_button("refresh_survey_tab")
-
 
 # -----------------------------
 # データ管理
 # -----------------------------
-with tab3:
-    show_data_management()
+with tab5:
+    try:
+        show_data_management()
+    except Exception as e:
+        st.error(f"データ管理画面の読み込みに失敗しました: {e}")
 
