@@ -199,7 +199,7 @@ def render_refresh_button(btn_key: str = "refresh_btn"):
 # -----------------------------
 st.title("and st 統計記録 Team Men's")
 
-tab1, tab2, tab3, tab4 = st.tabs(["件数登録", "and st 分析", "アンケート分析", "データ管理"])
+tab1, tab2, tab3 = st.tabs(["APP推薦紀錄", "アンケート紀錄", "データ管理"])
 
 # -----------------------------
 # 統計區塊（含 構成比 + スタッフ別 合計 + 週別合計 + 月別累計）
@@ -278,52 +278,6 @@ def show_statistics(category: str, label: str):
         weekly["w"] = weekly["w_num"].apply(lambda x: f"w{x}")
         st.caption(f"表示中：{yearW}年・{monthW}")
         st.dataframe(weekly[["w", "count"]].rename(columns={"count": "合計"}), use_container_width=True)
-
-    # === 日別（週選択） ===
-    st.subheader("日別（週選択）")
-    # 年の選択
-    yearsD = year_options(df_all)
-    default_yearD = date.today().year if date.today().year in yearsD else yearsD[-1]
-    colDY, colDW = st.columns([1,1])
-    with colDY:
-        yearD = st.selectbox("年（日別・週選択）", options=yearsD, index=yearsD.index(default_yearD), key=f"daily_year_{category}")
-    # その年の実データから選べる wXX ラベル
-    df_yearD = df_all[df_all["date"].dt.year == int(yearD)].copy()
-    if category == "app":
-        df_yearD = df_yearD[df_yearD["type"].isin(["new", "exist", "line"])]
-    else:
-        df_yearD = df_yearD[df_yearD["type"] == "survey"]
-    weeksD = sorted(set(df_yearD["date"].dropna().dt.isocalendar().week.astype(int).tolist()))
-    labelsD = _labels_for_weeks(weeksD) or ["w1"]
-    default_labelD = f"w{date.today().isocalendar().week}"
-    if default_labelD not in labelsD:
-        default_labelD = labelsD[0]
-    with colDW:
-        sel_week_label = st.selectbox("週（wXX）", options=labelsD, index=labelsD.index(default_labelD) if default_labelD in labelsD else 0, key=f"daily_week_{category}")
-    # 選択された wXX が何週に対応するか（年またぎ吸収）
-    weeks_real = _actual_weeks_for_label(df_yearD, sel_week_label)
-    # 対象週のデータ抽出
-    df_week = df_all[df_all["date"].dt.year == int(yearD)].copy()
-    if category == "app":
-        df_week = df_week[df_week["type"].isin(["new", "exist", "line"])]
-    else:
-        df_week = df_week[df_week["type"] == "survey"]
-    df_week["w_num"] = df_week["date"].dt.isocalendar().week.astype(int)
-    df_week = df_week[df_week["w_num"].isin(weeks_real)].copy()
-    # 月曜〜日曜で並べて合計
-    df_week["weekday"] = df_week["date"].dt.weekday  # 0=Mon ... 6=Sun
-    daily = df_week.groupby("weekday")["count"].sum().reindex(range(7), fill_value=0).reset_index()
-    daily["label"] = daily["weekday"].map({0:"月",1:"火",2:"水",3:"木",4:"金",5:"土",6:"日"})
-    # 折線グラフ
-    fig = plt.figure()
-    plt.plot(daily["label"], daily["count"], marker="o")
-    plt.xlabel("曜日")
-    ttl = f"{label}：{yearD}年 {sel_week_label} の日別合計"
-    plt.title(ttl)
-    plt.ylabel("件数")
-    st.pyplot(fig, clear_figure=True)
-    # 実数表
-    st.dataframe(daily[["label","count"]].rename(columns={"label":"曜日","count":"合計"}), use_container_width=True)
 
     # === 構成比（新規・既存・LINE）— 年份 + 期間 ===
     if category == "app":
@@ -491,7 +445,7 @@ with tab1:
 # -----------------------------
 # 表單：アンケート（問卷取得件數）
 # -----------------------------
-with tab1:  # merged survey form
+with tab2:
     st.subheader("アンケート")
     with st.form("survey_form"):
         c1, c2 = st.columns([2, 2])
@@ -534,16 +488,6 @@ with tab1:  # merged survey form
 # -----------------------------
 # データ管理
 # -----------------------------
-
-# -----------------------------
-# 分析タブ
-# -----------------------------
-with tab2:
-    # and st 分析（新規+既存+LINE の合算）
-    show_statistics("app", "and st")
-
-with tab3:
-    # アンケート分析
-    show_statistics("survey", "アンケート")
 with tab3:
     show_data_management()
+
