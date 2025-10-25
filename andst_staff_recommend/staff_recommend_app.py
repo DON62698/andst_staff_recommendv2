@@ -3,6 +3,7 @@ import os
 from datetime import date
 import uuid
 import calendar
+
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
@@ -103,11 +104,14 @@ def year_options(df: pd.DataFrame) -> list:
     years = sorted(set(df["date"].dropna().dt.year.astype(int).tolist()))
     return years or [date.today().year]
 
+def _week_label(week_number: int) -> str:
+    return f"w{int(week_number)}"
+
 # -----------------------------
-# 修正版 _filter_by_period
+# 修正版 _filter_by_period（修正你遇到的語法錯誤）
 # -----------------------------
 def _filter_by_period(df: pd.DataFrame, mode: str, value, selected_year: int) -> pd.DataFrame:
-    """根據選擇的期間（週/月/年）過濾資料"""
+    """根據選擇的期間（週 / 月 / 年）過濾資料"""
     if "date" not in df.columns or df["date"].isna().all():
         return df.iloc[0:0]
 
@@ -141,7 +145,7 @@ _init_once()
 init_session()
 
 # -----------------------------
-# Progress bar
+# Progress bar（保留函式，供註冊頁使用）
 # -----------------------------
 def render_rate_block(category, label, current_total, target, ym):
     pct = 0 if target <= 0 else min(100.0, round(current_total * 100.0 / max(1, target), 1))
@@ -162,12 +166,12 @@ def render_rate_block(category, label, current_total, target, ym):
     )
 
 # -----------------------------
-# Analysis
+# Analysis（圖表英文，避免亂碼）
 # -----------------------------
 def show_statistics(category, label):
     df_all = ensure_dataframe(st.session_state.data)
 
-    # --- 週別合計 ---
+    # --- 週別合計（表）---
     st.subheader("週別合計")
     years = year_options(df_all)
     year = st.selectbox("年", years, index=len(years)-1, key=f"y_{category}")
@@ -181,12 +185,12 @@ def show_statistics(category, label):
         st.info("データがありません。")
         return
 
-    df_y["iso_week"] = df_y["date"].dt.isocalendar().week
+    df_y["iso_week"] = df_y["date"].dt.isocalendar().week.astype(int)
     weekly = df_y.groupby("iso_week")["count"].sum().reset_index()
     weekly["週"] = weekly["iso_week"].apply(lambda w: f"w{w}")
     st.dataframe(weekly[["週", "count"]].rename(columns={"count": "合計"}), use_container_width=True)
 
-    # --- 週別推移グラフ ---
+    # --- 週別推移グラフ（你的需求：原【日別（週選択）】改名 & selector 改為 年 / 週）---
     st.subheader("週別推移グラフ")
     yearD = st.selectbox("年", years, index=len(years)-1, key=f"daily_year_{category}")
     df_yearD = df_all[df_all["date"].dt.year == int(yearD)]
@@ -196,29 +200,33 @@ def show_statistics(category, label):
         df_yearD = df_yearD[df_yearD["type"] == "survey"]
 
     weeksD = sorted(set(df_yearD["date"].dt.isocalendar().week.astype(int).tolist()))
-    week_labels = [f"w{w}" for w in weeksD]
+    week_labels = [f"w{w}" for w in weeksD] if weeksD else [f"w{date.today().isocalendar().week}"]
     sel_week = st.selectbox("週", week_labels, index=len(week_labels)-1, key=f"daily_week_{category}")
     sel_week_num = int(sel_week.lstrip("w"))
-    df_week = df_yearD[df_yearD["date"].dt.isocalendar().week == sel_week_num]
-    df_week["weekday"] = df_week["date"].dt.weekday
+
+    df_week = df_yearD[df_yearD["date"].dt.isocalendar().week.astype(int) == sel_week_num].copy()
+    df_week["weekday"] = df_week["date"].dt.weekday  # 0..6
+
     daily = df_week.groupby("weekday")["count"].sum().reindex(range(7), fill_value=0).reset_index()
     daily["label"] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
     plt.figure()
     plt.plot(daily["label"], daily["count"], marker="o")
-    plt.ylabel("Count")
+    # 不顯示 Day of Week 的 xlabel（依你的要求）
+    # plt.xlabel("Day of Week")
     if category == "survey":
         plt.title("Survey daily")
     else:
         plt.title(f"{label} Daily Totals: {yearD} {sel_week}")
+    plt.ylabel("Count")
     st.pyplot(plt.gcf())
 
-    # --- 月別累計 ---
+    # --- 月別累計（年次）---
     st.subheader("月別累計（年次）")
     df_monthly = (
-        df_y.groupby(df_y["date"].dt.strftime("%Y-%m"))["count"].sum().reindex(
-            [f"{year}-{str(m).zfill(2)}" for m in range(1, 13)], fill_value=0
-        )
+        df_y.groupby(df_y["date"].dt.strftime("%Y-%m"))["count"]
+        .sum()
+        .reindex([f"{year}-{str(m).zfill(2)}" for m in range(1, 13)], fill_value=0)
     )
     labels = [calendar.month_abbr[int(m.split('-')[1])] for m in df_monthly.index]
     plt.figure()
@@ -230,10 +238,11 @@ def show_statistics(category, label):
     st.pyplot(plt.gcf())
 
 # -----------------------------
-# Tabs
+# Tabs（與女生版一致的分頁結構）
 # -----------------------------
 tab_reg, tab3, tab4, tab5 = st.tabs(["件数登録", "and st 分析", "アンケート分析", "データ管理"])
 
+# 這裡保持與你現有的資料管理相容
 with tab3:
     show_statistics("app", "and st")
 
@@ -241,5 +250,7 @@ with tab4:
     show_statistics("survey", "アンケート")
 
 with tab5:
-    show_data_management()
-
+    try:
+        show_data_management()
+    except Exception as e:
+        st.error(f"データ管理画面の読み込みに失敗しました: {e}")
