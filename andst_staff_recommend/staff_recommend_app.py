@@ -11,6 +11,210 @@ import matplotlib.pyplot as plt
 # -----------------------------
 # Page config & title (no icon/emojis)
 # -----------------------------
+# ===== PDF Export Utils (A4) =====
+import io, tempfile, math
+from reportlab.pdfgen import canvas as pdfcanvas
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.utils import ImageReader
+
+A4_W, A4_H = A4  # (595, 842) points, 72dpi
+
+def _fig_to_png_bytes(fig, dpi=200):
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
+    plt.close(fig)
+    buf.seek(0)
+    return buf
+
+def _build_daily_line_fig(df_all: pd.DataFrame, category: str, label: str):
+    # 取用目前 UI 選擇的年份與週（若沒有就 fallback）
+    year_key = f"daily_year_{category}"
+    week_key = f"daily_week_{category}"
+    yearD = st.session_state.get(year_key, date.today().year)
+    sel_week_label = st.session_state.get(week_key, f"w{date.today().isocalendar().week}")
+    try:
+        sel_week_num = int(str(sel_week_label).lstrip("w"))
+    except Exception:
+        sel_week_num = date.today().isocalendar().week
+
+    df_yearD = df_all.copy()
+    if category == "app":
+        df_yearD = df_yearD[(df_yearD["date"].dt.year == int(yearD)) & (df_yearD["type"].isin(["new","exist","line"]))]
+    else:
+        df_yearD = df_yearD[(df_yearD["date"].dt.year == int(yearD)) & (df_yearD["type"] == "survey")]
+
+    df_week = df_yearD.copy()
+    df_week["iso_week"] = df_week["date"].dt.isocalendar().week.astype(int)
+    df_week = df_week[df_week["iso_week"] == sel_week_num].copy()
+    df_week["weekday"] = df_week["date"].dt.weekday
+    daily = df_week.groupby("weekday")["count"].sum().reindex(range(7), fill_value=0).reset_index()
+    daily["label"] = daily["weekday"].map({0:"Mon",1:"Tue",2:"Wed",3:"Thu",4:"Fri",5:"Sat",6:"Sun"})
+
+    fig = plt.figure()
+    plt.plot(daily["label"], daily["count"], marker="o")
+    if category == "survey":
+        plt.title(f"Survey Daily: {yearD} w{sel_week_num}")
+    else:
+        plt.title(f"{label} Daily Totals: {yearD} w{sel_week_num}")
+    plt.xlabel("")
+    plt.ylabel("Count")
+    return fig
+
+def _build_monthly_bar_fig(df_all: pd.DataFrame, category: str, year_sel: int):
+    import calendar
+    if category == "app":
+        df_year = df_all[(df_all["date"].dt.year == int(year_sel)) & (df_all["type"].isin(["new","exist","line"]))]
+        title_label = "and st"
+    else:
+        df_year = df_all[(df_all["date"].dt.year == int(year_sel)) & (df_all["type"] == "survey")]
+        title_label = "Survey"
+
+    monthly = (
+        df_year.groupby(df_year["date"].dt.strftime("%Y-%m"))["count"]
+        .sum()
+        .reindex([f"{year_sel}-{str(m).zfill(2)}" for m in range(1,13)], fill_value=0)
+    )
+    labels = [calendar.month_abbr[int(s.split("-")[1])] for s in monthly.index.tolist()]
+    values = monthly.values.tolist()
+
+    fig = plt.figure()
+    bars = plt.bar(labels, values)
+    plt.grid(True, axis="y", linestyle="--", linewidth=0.5)
+    plt.xticks(rotation=0, ha="center")
+    plt.title(f"{title_label} Monthly totals ({int(year_sel)})")
+    ymax = max(values) if values else 0
+    if ymax > 0:
+        plt.ylim(0, ymax * 1.15)
+    for bar, val in zip(bars, values):
+        plt.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f"{int(val)}", ha="center", va="bottom", fontsize=9)
+    return fig
+
+def _build_composition_pie_fig(df_all: pd.DataFrame, year_sel: int, period_type: str, period_value):
+    # 只有 app 用
+    df_comp_base = df_all[df_all["type"].isin(["new","exist","line"])].copy()
+    # period_type in {"週（単週）","月（単月）","年（単年）"}
+    dfx = df_comp_base.copy()
+    if period_type == "週（単週）":
+        dfx = dfx[dfx["date"].dt.year == int(year_sel)]
+        want = int(str(period_value).lower().lstrip("w"))
+        dfx = dfx[dfx["date"].dt.isocalendar().week.astype(int).isin([want])]
+    elif period_type == "月（単月）":
+        dfx = dfx[(dfx["date"].dt.year == int(year_sel)) & (dfx["date"].dt.strftime("%Y-%m") == str(period_value))]
+    else:
+        dfx = dfx[dfx["date"].dt.year == int(year_sel)]
+
+    new_sum  = int(dfx[dfx["type"] == "new"]["count"].sum())
+    exist_sum= int(dfx[dfx["type"] == "exist"]["count"].sum())
+    line_sum = int(dfx[dfx["type"] == "line"]["count"].sum())
+
+    fig = plt.figure()
+    if (new_sum + exist_sum + line_sum) > 0:
+        plt.pie([new_sum, exist_sum, line_sum], labels=["New","Exist","LINE"], autopct="%1.1f%%", startangle=90)
+    else:
+        plt.text(0.5,0.5,"No data", ha="center", va="center")
+    plt.title("Composition (New / Exist / LINE)")
+    return fig
+
+def export_weekly_pdf(df_all: pd.DataFrame, category: str, label: str, filename: str="andst_weekly_report.pdf"):
+    """
+    生成一頁 A4 PDF：
+    - 左上：單週每日曲線圖
+    - 右上：構成比（app 才有；survey 則改放月別累計）
+    - 下方：月別累計（app）或 Notes 區（survey）
+    - 右下：大面積 Notes 手寫空白框
+    """
+    # 取目前 UI 選擇的年份（沿用你現有 selectbox key）
+    year_key_any = (
+        f"monthly_year_{category}" if f"monthly_year_{category}" in st.session_state
+        else f"weekly_year_{category}"
+    )
+    year_sel = st.session_state.get(year_key_any, date.today().year)
+
+    # 準備圖像 bytes
+    daily_fig = _build_daily_line_fig(df_all, category, label)
+    daily_png = _fig_to_png_bytes(daily_fig)
+
+    if category == "app":
+        # 用「構成比」的 UI 選擇（若無就 fall back）
+        ptype   = st.session_state.get(f"comp_period_type_{category}", "年（単年）")
+        pvalue_opts = st.session_state.get(f"comp_period_value_{category}",
+                                           f"w{date.today().isocalendar().week}" if ptype=="週（単週）" else date.today().strftime("%Y-%m"))
+        comp_fig = _build_composition_pie_fig(df_all, year_sel, ptype, pvalue_opts)
+        comp_png = _fig_to_png_bytes(comp_fig)
+
+        monthly_fig = _build_monthly_bar_fig(df_all, category, year_sel)
+        monthly_png = _fig_to_png_bytes(monthly_fig)
+    else:
+        # survey 沒構成比 → 右上直接放月別累計
+        monthly_fig = _build_monthly_bar_fig(df_all, category, year_sel)
+        monthly_png = _fig_to_png_bytes(monthly_fig)
+        comp_png = None
+
+    # 佈局（ReportLab）
+    tmp_path = tempfile.mktemp(suffix=".pdf")
+    c = pdfcanvas.Canvas(tmp_path, pagesize=A4)
+
+    margin = 36  # 0.5 inch
+    gutter = 12
+    body_w = A4_W - margin*2
+    body_h = A4_H - margin*2
+
+    # 標題列
+    title = f"and st Weekly Report ({label})"
+    c.setFont("Helvetica-Bold", 16)
+    c.drawString(margin, A4_H - margin + 4, title)
+
+    # 上半：兩欄
+    top_h = (body_h * 0.45)
+    col_w = (body_w - gutter) / 2.0
+    # 左上：每日曲線
+    left_x = margin
+    left_y = A4_H - margin - top_h
+    daily_img = ImageReader(daily_png)
+    c.drawImage(daily_img, left_x, left_y, width=col_w, height=top_h, preserveAspectRatio=True, anchor='sw')
+
+    # 右上：app=構成比；survey=月別
+    right_x = margin + col_w + gutter
+    right_y = left_y
+    if comp_png is not None:
+        right_img = ImageReader(comp_png)
+        c.drawImage(right_img, right_x, right_y, width=col_w, height=top_h, preserveAspectRatio=True, anchor='sw')
+    else:
+        right_img = ImageReader(monthly_png)
+        c.drawImage(right_img, right_x, right_y, width=col_w, height=top_h, preserveAspectRatio=True, anchor='sw')
+
+    # 下半：左 = 月別（app）或空白；右 = 大張 Notes
+    bottom_y = margin
+    bottom_h = (body_h - top_h - gutter)
+    notes_w = col_w  # 右側 notes
+    chart_w = col_w  # 左側 chart
+
+    # 左下內容
+    if category == "app":
+        left_img2 = ImageReader(monthly_png)
+        c.drawImage(left_img2, left_x, bottom_y, width=chart_w, height=bottom_h, preserveAspectRatio=True, anchor='sw')
+    else:
+        # survey 左下留空白以供手寫
+        c.setLineWidth(0.5)
+        c.rect(left_x, bottom_y, chart_w, bottom_h)
+        c.setFont("Helvetica", 11)
+        c.drawString(left_x + 6, bottom_y + bottom_h - 14, "Notes")
+
+    # 右下大 Notes
+    c.setLineWidth(0.8)
+    c.rect(right_x, bottom_y, notes_w, bottom_h)
+    c.setFont("Helvetica", 11)
+    c.drawString(right_x + 6, bottom_y + bottom_h - 14, "Notes / 手書きメモ欄")
+
+    # 斷點線（可有可無）
+    c.setDash(3,3)
+    c.line(margin, left_y - gutter/2, margin + body_w, left_y - gutter/2)
+    c.setDash()
+
+    c.showPage()
+    c.save()
+    return tmp_path
+
 try:
     st.set_page_config(page_title="and st 統計 Team Men's", layout="centered")
 except Exception:
