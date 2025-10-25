@@ -3,15 +3,10 @@ import os
 from datetime import date
 import uuid
 import calendar
-import io
-import tempfile
 
 import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
-from reportlab.pdfgen import canvas as pdfcanvas
-from reportlab.lib.pagesizes import A4
-from reportlab.lib.utils import ImageReader
 
 # -----------------------------
 # Page config & title (no icon/emojis)
@@ -242,208 +237,13 @@ def render_rate_block(category: str, label: str, current_total: int, target: int
                 st.error(f"保存失敗: {e}")
 
 # -----------------------------
-# PDF export utilities (A4)
-# -----------------------------
-A4_W, A4_H = A4  # points
-
-def _fig_to_png_bytes(fig, dpi=200):
-    buf = io.BytesIO()
-    fig.savefig(buf, format="png", dpi=dpi, bbox_inches="tight")
-    plt.close(fig)
-    buf.seek(0)
-    return buf
-
-def _build_daily_line_fig(df_all: pd.DataFrame, category: str, label: str):
-    # read UI selections if available
-    year_key = f"daily_year_{category}"
-    week_key = f"daily_week_{category}"
-    yearD = st.session_state.get(year_key, date.today().year)
-    sel_week_label = st.session_state.get(week_key, f"w{date.today().isocalendar().week}")
-    try:
-        sel_week_num = int(str(sel_week_label).lstrip("w"))
-    except Exception:
-        sel_week_num = date.today().isocalendar().week
-
-    if category == "app":
-        df_yearD = df_all[(df_all["date"].dt.year == int(yearD)) & (df_all["type"].isin(["new", "exist", "line"]))].copy()
-    else:
-        df_yearD = df_all[(df_all["date"].dt.year == int(yearD)) & (df_all["type"] == "survey")].copy()
-
-    df_yearD["iso_week"] = df_yearD["date"].dt.isocalendar().week.astype(int)
-    df_week = df_yearD[df_yearD["iso_week"] == sel_week_num].copy()
-    df_week["weekday"] = df_week["date"].dt.weekday
-    daily = df_week.groupby("weekday")["count"].sum().reindex(range(7), fill_value=0).reset_index()
-    daily["label"] = daily["weekday"].map({0:"Mon",1:"Tue",2:"Wed",3:"Thu",4:"Fri",5:"Sat",6:"Sun"})
-
-    fig = plt.figure()
-    plt.plot(daily["label"], daily["count"], marker="o")
-    if category == "survey":
-        plt.title(f"Survey Daily: {yearD} w{sel_week_num}")
-    else:
-        plt.title(f"{label} Daily Totals: {yearD} w{sel_week_num}")
-    plt.xlabel("")  # remove "Day of Week" wording
-    plt.ylabel("Count")
-    return fig
-
-def _build_monthly_bar_fig(df_all: pd.DataFrame, category: str, year_sel: int):
-    if category == "app":
-        df_year = df_all[(df_all["date"].dt.year == int(year_sel)) & (df_all["type"].isin(["new", "exist", "line"]))].copy()
-        title_label = "and st"
-    else:
-        df_year = df_all[(df_all["date"].dt.year == int(year_sel)) & (df_all["type"] == "survey")].copy()
-        title_label = "Survey"
-
-    monthly = (
-        df_year.groupby(df_year["date"].dt.strftime("%Y-%m"))["count"]
-        .sum()
-        .reindex([f"{year_sel}-{str(m).zfill(2)}" for m in range(1, 13)], fill_value=0)
-    )
-    labels = [calendar.month_abbr[int(s.split("-")[1])] for s in monthly.index.tolist()]
-    values = monthly.values.tolist()
-
-    fig = plt.figure()
-    bars = plt.bar(labels, values)
-    plt.grid(True, axis="y", linestyle="--", linewidth=0.5)
-    plt.xticks(rotation=0, ha="center")
-    plt.title(f"{title_label} Monthly totals ({int(year_sel)})")
-    ymax = max(values) if values else 0
-    if ymax > 0:
-        plt.ylim(0, ymax * 1.15)
-    for bar, val in zip(bars, values):
-        plt.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f"{int(val)}", ha="center", va="bottom", fontsize=9)
-    return fig
-
-def _build_composition_pie_fig(df_all: pd.DataFrame, year_sel: int, period_type: str, period_value):
-    # only for app
-    df_comp_base = df_all[df_all["type"].isin(["new", "exist", "line"])].copy()
-    dfx = df_comp_base.copy()
-    if period_type == "週（単週）":
-        dfx = dfx[dfx["date"].dt.year == int(year_sel)]
-        try:
-            want = int(str(period_value).lower().lstrip("w"))
-        except Exception:
-            want = date.today().isocalendar().week
-        dfx = dfx[dfx["date"].dt.isocalendar().week.astype(int).isin([want])]
-    elif period_type == "月（単月）":
-        dfx = dfx[(dfx["date"].dt.year == int(year_sel)) & (dfx["date"].dt.strftime("%Y-%m") == str(period_value))]
-    else:
-        dfx = dfx[dfx["date"].dt.year == int(year_sel)]
-
-    new_sum  = int(dfx[dfx["type"] == "new"]["count"].sum())
-    exist_sum= int(dfx[dfx["type"] == "exist"]["count"].sum())
-    line_sum = int(dfx[dfx["type"] == "line"]["count"].sum())
-
-    fig = plt.figure()
-    if (new_sum + exist_sum + line_sum) > 0:
-        plt.pie([new_sum, exist_sum, line_sum], labels=["New","Exist","LINE"], autopct="%1.1f%%", startangle=90)
-    else:
-        plt.text(0.5, 0.5, "No data", ha="center", va="center")
-    plt.title("Composition (New / Exist / LINE)")
-    return fig
-
-def export_weekly_pdf(df_all: pd.DataFrame, category: str, label: str, filename: str="andst_weekly_report.pdf"):
-    """
-    Generate a single-page A4 PDF:
-      - Top-left: weekly daily line chart
-      - Top-right: composition pie (app) OR monthly bar (survey)
-      - Bottom-left: monthly bar (app) OR blank notes (survey)
-      - Bottom-right: large Notes box
-    """
-    # pick a year from existing UI states if available
-    year_key_any = f"monthly_year_{category}" if f"monthly_year_{category}" in st.session_state else f"weekly_year_{category}"
-    year_sel = st.session_state.get(year_key_any, date.today().year)
-
-    daily_fig = _build_daily_line_fig(df_all, category, label)
-    daily_png = _fig_to_png_bytes(daily_fig)
-
-    if category == "app":
-        ptype = st.session_state.get(f"comp_period_type_{category}", "年（単年）")
-        pvalue = st.session_state.get(
-            f"comp_period_value_{category}",
-            f"w{date.today().isocalendar().week}" if ptype == "週（単週）" else date.today().strftime("%Y-%m")
-        )
-        comp_fig = _build_composition_pie_fig(df_all, year_sel, ptype, pvalue)
-        comp_png = _fig_to_png_bytes(comp_fig)
-
-        monthly_fig = _build_monthly_bar_fig(df_all, category, year_sel)
-        monthly_png = _fig_to_png_bytes(monthly_fig)
-    else:
-        monthly_fig = _build_monthly_bar_fig(df_all, category, year_sel)
-        monthly_png = _fig_to_png_bytes(monthly_fig)
-        comp_png = None
-
-    tmp_path = tempfile.mktemp(suffix=".pdf")
-    c = pdfcanvas.Canvas(tmp_path, pagesize=A4)
-
-    margin = 36  # 0.5 inch
-    gutter = 12
-    body_w = A4_W - margin*2
-    body_h = A4_H - margin*2
-
-    # Title
-    title = f"and st Weekly Report ({label})"
-    c.setFont("Helvetica-Bold", 16)
-    c.drawString(margin, A4_H - margin + 4, title)
-
-    # Top area (two columns)
-    top_h = (body_h * 0.45)
-    col_w = (body_w - gutter) / 2.0
-    left_x = margin
-    left_y = A4_H - margin - top_h
-
-    # Left-top: daily
-    daily_img = ImageReader(daily_png)
-    c.drawImage(daily_img, left_x, left_y, width=col_w, height=top_h, preserveAspectRatio=True, anchor='sw')
-
-    # Right-top: comp (app) or monthly (survey)
-    right_x = margin + col_w + gutter
-    right_y = left_y
-    if comp_png is not None:
-        right_img = ImageReader(comp_png)
-        c.drawImage(right_img, right_x, right_y, width=col_w, height=top_h, preserveAspectRatio=True, anchor='sw')
-    else:
-        right_img = ImageReader(monthly_png)
-        c.drawImage(right_img, right_x, right_y, width=col_w, height=top_h, preserveAspectRatio=True, anchor='sw')
-
-    # Bottom area
-    bottom_y = margin
-    bottom_h = (body_h - top_h - gutter)
-    notes_w = col_w
-    chart_w = col_w
-
-    # Left-bottom
-    if category == "app":
-        left_img2 = ImageReader(monthly_png)
-        c.drawImage(left_img2, left_x, bottom_y, width=chart_w, height=bottom_h, preserveAspectRatio=True, anchor='sw')
-    else:
-        c.setLineWidth(0.5)
-        c.rect(left_x, bottom_y, chart_w, bottom_h)
-        c.setFont("Helvetica", 11)
-        c.drawString(left_x + 6, bottom_y + bottom_h - 14, "Notes")
-
-    # Right-bottom (big notes)
-    c.setLineWidth(0.8)
-    c.rect(right_x, bottom_y, notes_w, bottom_h)
-    c.setFont("Helvetica", 11)
-    c.drawString(right_x + 6, bottom_y + bottom_h - 14, "Notes / 手書きメモ欄")
-
-    # Divider line
-    c.setDash(3, 3)
-    c.line(margin, left_y - gutter/2, margin + body_w, left_y - gutter/2)
-    c.setDash()
-
-    c.showPage()
-    c.save()
-    return tmp_path
-
-# -----------------------------
 # Analysis (mirrors women's structure; chart labels in EN)
 # -----------------------------
 def show_statistics(category: str, label: str):
     df_all = ensure_dataframe(st.session_state.data)
     ym = current_year_month()
 
-    # --- Weekly totals table ---
+    # --- Weekly totals table (JP UI OK; data labels are plain digits) ---
     st.subheader("週別合計")
     yearsW = year_options(df_all)
     default_yearW = date.today().year if date.today().year in yearsW else yearsW[-1]
@@ -476,7 +276,7 @@ def show_statistics(category: str, label: str):
         st.caption(f"表示中：{yearW}年・{monthW}")
         st.dataframe(weekly[["w", "count"]].rename(columns={"count": "合計"}), use_container_width=True)
 
-    # --- Daily by selected week (single-week daily line) ---
+    # --- Daily by selected week (Your request: fix chart title for survey) ---
     st.subheader("週別推移グラフ")
     yearsD = year_options(df_all)
     default_yearD = date.today().year if date.today().year in yearsD else yearsD[-1]
@@ -511,16 +311,20 @@ def show_statistics(category: str, label: str):
     daily = df_week.groupby("weekday")["count"].sum().reindex(range(7), fill_value=0).reset_index()
     daily["label"] = daily["weekday"].map({0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"})
 
+    # EN-only chart labels to avoid mojibake
     fig = plt.figure()
     plt.plot(daily["label"], daily["count"], marker="o")
+    # ---- FIX: use "Survey Daily" title when category == "survey" to avoid JP mojibake ----
     if category == "survey":
         plt.title(f"Survey Daily: {yearD} {sel_week_label}")
     else:
         plt.title(f"{label} Daily Totals: {yearD} {sel_week_label}")
-    plt.xlabel("")  # remove "Day of Week"
+    # (Optional) You previously mentioned removing "Day of Week"; keep axis label empty
+    plt.xlabel("")
     plt.ylabel("Count")
     st.pyplot(fig, clear_figure=True)
 
+    # numbers table (EN column headers)
     st.dataframe(
         daily[["label", "count"]].rename(columns={"label": "Day", "count": "Total"}),
         use_container_width=True
@@ -721,27 +525,11 @@ with tab_reg:
 with tab3:
     show_statistics("app", "and st")
 
-    # === A4 PDF export (and st) ===
-    with st.expander("📄 週次レポート（A4出力）"):
-        if st.button("🖨️ PDF出力（and st）", key="export_pdf_app"):
-            df_all = ensure_dataframe(st.session_state.data)
-            pdf_path = export_weekly_pdf(df_all, category="app", label="and st", filename="andst_weekly_app.pdf")
-            with open(pdf_path, "rb") as f:
-                st.download_button("⬇️ 下載 A4 PDF（and st）", f, file_name="andst_weekly_app.pdf", mime="application/pdf")
-
 # -----------------------------
 # アンケート分析
 # -----------------------------
 with tab4:
     show_statistics("survey", "アンケート")
-
-    # === A4 PDF export (survey) ===
-    with st.expander("📄 週次レポート（A4出力）"):
-        if st.button("🖨️ PDF出力（アンケート）", key="export_pdf_survey"):
-            df_all = ensure_dataframe(st.session_state.data)
-            pdf_path = export_weekly_pdf(df_all, category="survey", label="アンケート", filename="andst_weekly_survey.pdf")
-            with open(pdf_path, "rb") as f:
-                st.download_button("⬇️ 下載 A4 PDF（アンケート）", f, file_name="andst_weekly_survey.pdf", mime="application/pdf")
 
 # -----------------------------
 # データ管理
@@ -751,4 +539,3 @@ with tab5:
         show_data_management()
     except Exception as e:
         st.error(f"データ管理画面の読み込みに失敗しました: {e}")
-
