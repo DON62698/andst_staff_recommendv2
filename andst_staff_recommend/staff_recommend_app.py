@@ -168,7 +168,9 @@ def _filter_by_period(df: pd.DataFrame, mode: str, value, selected_year: int) ->
             return dyear.iloc[0:0]
         return dyear[dyear["date"].dt.isocalendar().week.astype(int).isin([want])]
     elif mode == "月（単月）":
-        dyear = dfx[dfx["date"].dt.year == int(selected_year)]
+        dyear = dfx[d
+        f
+        x["date"].dt.year == int(selected_year)]
         return dyear[dyear["date"].dt.strftime("%Y-%m") == str(value)]
     else:
         return dfx[dfx["date"].dt.year == int(selected_year)]
@@ -277,33 +279,38 @@ def show_statistics(category: str, label: str):
         st.dataframe(weekly[["w", "count"]].rename(columns={"count": "合計"}), use_container_width=True)
 
     # --- Daily by selected week (YOUR NEW REQUEST) ---
-    st.subheader("日別（週選択）")
+    # 改名：日別（週選択） -> 週別推移グラフ
+    st.subheader("週別推移グラフ")
     yearsD = year_options(df_all)
     default_yearD = date.today().year if date.today().year in yearsD else yearsD[-1]
-    colDY, colDW = st.columns([1, 1])
-    with colDY:
-        yearD = st.selectbox("年（日別・週選択）", options=yearsD, index=yearsD.index(default_yearD), key=f"daily_year_{category}")
-
-    df_yearD = df_all[df_all["date"].dt.year == int(yearD)].copy()
-    if category == "app":
-        df_yearD = df_yearD[df_yearD["type"].isin(["new", "exist", "line"])]
-    else:
-        df_yearD = df_yearD[df_yearD["type"] == "survey"]
-
-    weeksD = sorted(set(df_yearD["date"].dropna().dt.isocalendar().week.astype(int).tolist()))
-    week_labels = [f"w{w}" for w in weeksD] or [f"w{date.today().isocalendar().week}"]
-    default_wlabel = f"w{date.today().isocalendar().week}"
-    if default_wlabel not in week_labels:
-        default_wlabel = week_labels[0]
+    # 下拉選單標籤：改成「週」「年」，去掉括弧與括弧內的內容
+    colDW, colDY = st.columns([1, 1])
     with colDW:
-        sel_week_label = st.selectbox("週（wXX）", options=week_labels, index=week_labels.index(default_wlabel), key=f"daily_week_{category}")
+        df_yearD_all = df_all.copy()
+        if category == "app":
+            df_yearD_all = df_yearD_all[df_yearD_all["type"].isin(["new", "exist", "line"])]
+        else:
+            df_yearD_all = df_yearD_all[df_yearD_all["type"] == "survey"]
+        weeksD = sorted(set(df_yearD_all["date"].dropna().dt.isocalendar().week.astype(int).tolist()))
+        week_labels = [f"w{w}" for w in weeksD] or [f"w{date.today().isocalendar().week}"]
+        default_wlabel = f"w{date.today().isocalendar().week}"
+        if default_wlabel not in week_labels:
+            default_wlabel = week_labels[0]
+        sel_week_label = st.selectbox("週", options=week_labels, index=week_labels.index(default_wlabel), key=f"daily_week_{category}")
+    with colDY:
+        yearD = st.selectbox("年", options=yearsD, index=yearsD.index(default_yearD), key=f"daily_year_{category}")
 
     try:
         sel_week_num = int(sel_week_label.lstrip("w"))
     except Exception:
         sel_week_num = date.today().isocalendar().week
 
-    df_week = df_yearD.copy()
+    df_week = df_all.copy()
+    if category == "app":
+        df_week = df_week[df_week["type"].isin(["new", "exist", "line"])]
+    else:
+        df_week = df_week[df_week["type"] == "survey"]
+    df_week = df_week[df_week["date"].dt.year == int(yearD)].copy()
     df_week["iso_week"] = df_week["date"].dt.isocalendar().week.astype(int)
     df_week = df_week[df_week["iso_week"] == sel_week_num].copy()
     df_week["weekday"] = df_week["date"].dt.weekday  # 0=Mon..6=Sun
@@ -311,11 +318,14 @@ def show_statistics(category: str, label: str):
     daily = df_week.groupby("weekday")["count"].sum().reindex(range(7), fill_value=0).reset_index()
     daily["label"] = daily["weekday"].map({0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"})
 
-    # EN-only chart labels to avoid mojibake
+    # 圖表：拿掉 Day of Week 的 xlabel，並在 Survey(アンケート)頁顯示 "Survey daily"
     fig = plt.figure()
     plt.plot(daily["label"], daily["count"], marker="o")
-    plt.xlabel("Day of Week")
-    plt.title(f"{label} Daily Totals: {yearD} {sel_week_label}")
+    # plt.xlabel("Day of Week")  # 省略
+    if category == "survey":
+        plt.title("Survey daily")
+    else:
+        plt.title(f"{label} Daily Totals: {yearD} {sel_week_label}")
     plt.ylabel("Count")
     st.pyplot(fig, clear_figure=True)
 
