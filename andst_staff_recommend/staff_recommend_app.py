@@ -277,12 +277,12 @@ def show_statistics(category: str, label: str):
         st.dataframe(weekly[["w", "count"]].rename(columns={"count": "合計"}), use_container_width=True)
 
     # --- Daily by selected week (YOUR NEW REQUEST) ---
-    st.subheader("日別（週選択）")
+    st.subheader(" 週別推移グラフ ")
     yearsD = year_options(df_all)
     default_yearD = date.today().year if date.today().year in yearsD else yearsD[-1]
     colDY, colDW = st.columns([1, 1])
     with colDY:
-        yearD = st.selectbox("年（日別・週選択）", options=yearsD, index=yearsD.index(default_yearD), key=f"daily_year_{category}")
+        yearD = st.selectbox("年（週別推移グラフ）", options=yearsD, index=yearsD.index(default_yearD), key=f"daily_year_{category}")
 
     df_yearD = df_all[df_all["date"].dt.year == int(yearD)].copy()
     if category == "app":
@@ -296,7 +296,7 @@ def show_statistics(category: str, label: str):
     if default_wlabel not in week_labels:
         default_wlabel = week_labels[0]
     with colDW:
-        sel_week_label = st.selectbox("週（wXX）", options=week_labels, index=week_labels.index(default_wlabel), key=f"daily_week_{category}")
+        sel_week_label = st.selectbox("週", options=week_labels, index=week_labels.index(default_wlabel), key=f"daily_week_{category}")
 
     try:
         sel_week_num = int(sel_week_label.lstrip("w"))
