@@ -276,8 +276,8 @@ def show_statistics(category: str, label: str):
         st.caption(f"表示中：{yearW}年・{monthW}")
         st.dataframe(weekly[["w", "count"]].rename(columns={"count": "合計"}), use_container_width=True)
 
-    # --- Daily by selected week (YOUR NEW REQUEST) ---
-    st.subheader(" 週別推移グラフ ")
+    # --- Daily by selected week (Your request: fix chart title for survey) ---
+    st.subheader("週別推移グラフ")
     yearsD = year_options(df_all)
     default_yearD = date.today().year if date.today().year in yearsD else yearsD[-1]
     colDY, colDW = st.columns([1, 1])
@@ -314,8 +314,13 @@ def show_statistics(category: str, label: str):
     # EN-only chart labels to avoid mojibake
     fig = plt.figure()
     plt.plot(daily["label"], daily["count"], marker="o")
-    plt.xlabel("Day of Week")
-    plt.title(f"{label} Daily Totals: {yearD} {sel_week_label}")
+    # ---- FIX: use "Survey Daily" title when category == "survey" to avoid JP mojibake ----
+    if category == "survey":
+        plt.title(f"Survey Daily: {yearD} {sel_week_label}")
+    else:
+        plt.title(f"{label} Daily Totals: {yearD} {sel_week_label}")
+    # (Optional) You previously mentioned removing "Day of Week"; keep axis label empty
+    plt.xlabel("")
     plt.ylabel("Count")
     st.pyplot(fig, clear_figure=True)
 
@@ -534,4 +539,3 @@ with tab5:
         show_data_management()
     except Exception as e:
         st.error(f"データ管理画面の読み込みに失敗しました: {e}")
-
