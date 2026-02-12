@@ -444,13 +444,11 @@ def show_statistics(category: str, label: str):
     with cpt1:
         ptype2 = st.selectbox("対象期間", ["週（単週）", "月（単月）", "年（単年）"], key=f"staff_period_type_{category}", index=0)
     with cpt2:
-        if ptype2 == "週（単週）":
-            opts2, default2 = _period_options(df_all, ptype2, year_sel2)
-        elif ptype2 == "月（単月）":
-            # month list by calendar year (use today's year list is okay)
-            opts2, default2 = _period_options(df_all, ptype2, date.today().year)
-        else:
-            opts2, default2 = _period_options(df_all, ptype2, date.today().year)
+        # ✅ 選んだ「年」に応じて期間候補を作る（2025が出ない不具合の修正）
+        #   週（単週）: ISO 年で扱う
+        #   月（単月）: 公暦年で扱う
+        #   年（単年）: 公暦年（選択肢はデータから生成）
+        opts2, default2 = _period_options(df_all, ptype2, year_sel2)
 
         idx2 = opts2.index(default2) if default2 in opts2 else 0
         sel2 = st.selectbox("表示する期間", options=opts2, index=idx2 if len(opts2) > 0 else 0, key=f"staff_period_value_{category}")
