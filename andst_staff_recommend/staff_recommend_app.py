@@ -401,7 +401,7 @@ def show_statistics(category: str, label: str):
             ptype = st.selectbox("対象期間", ["週（単週）", "月（単月）", "年（単年）"], key=f"comp_period_type_{category}")
         with colp2:
             # 年（単年）/月（単月）時は公曆年的 year_sel 可能不直覺，但這裡主要用在週分析
-            opts, default = _period_options(df_all, ptype, year_sel if ptype == "週（単週）" else date.today().year)
+            opts, default = _period_options(df_all, ptype, int(year_sel))  # ✅選択した年に合わせて週/月/年の候補を生成
             idx = opts.index(default) if default in opts else 0
             sel = st.selectbox("表示する期間", options=opts, index=idx if len(opts) > 0 else 0, key=f"comp_period_value_{category}")
 
