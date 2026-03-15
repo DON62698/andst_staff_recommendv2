@@ -1,7 +1,3 @@
-
-from ui_theme_dark import apply_dark_theme,kpi
-from charts_dark import weekly_progress_chart
-apply_dark_theme()
 # -*- coding: utf-8 -*-
 import os
 from datetime import date
@@ -12,15 +8,19 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 
+from ui_theme_dark import apply_dark_theme, render_kpi_row, render_section_title
+from charts_dark import weekly_progress_chart
+
 # -----------------------------
 # Page config & title
 # -----------------------------
 try:
-    st.set_page_config(page_title="and st 統計 Team Men's", layout="centered")
+    st.set_page_config(page_title="and st 統計 Team Men's", layout="wide")
 except Exception:
     pass
 
 st.title("and st Men's")
+apply_dark_theme()
 
 # -----------------------------
 # Japanese font (best-effort; 防止日文亂碼)
@@ -292,13 +292,52 @@ def render_rate_block(category: str, label: str, current_total: int, target: int
 # -----------------------------
 # Statistics page
 # -----------------------------
+def week_count_in_month(ym: str) -> int:
+    try:
+        y, m = [int(x) for x in str(ym).split("-")]
+        first = pd.Timestamp(year=y, month=m, day=1)
+        last = first + pd.offsets.MonthEnd(1)
+        days = pd.date_range(first, last, freq="D")
+        return max(1, int(days.isocalendar()["week"].nunique()))
+    except Exception:
+        return 4
+
+def build_weekly_progress_df(df_month: pd.DataFrame, monthly_target: int, category: str) -> pd.DataFrame:
+    if df_month.empty:
+        return pd.DataFrame(columns=["week_label", "new", "exist", "line", "survey", "total", "target", "progress_rate"])
+
+    dfx = df_month.copy()
+    if "iso_year" not in dfx.columns or "iso_week" not in dfx.columns:
+        iso = dfx["date"].dt.isocalendar()
+        dfx["iso_year"] = iso["year"].astype(int)
+        dfx["iso_week"] = iso["week"].astype(int)
+
+    grouped = dfx.groupby(["iso_year", "iso_week", "type"])["count"].sum().unstack(fill_value=0).reset_index()
+    for col in ["new", "exist", "line", "survey"]:
+        if col not in grouped.columns:
+            grouped[col] = 0
+
+    if category == "app":
+        grouped["total"] = grouped[["new", "exist", "line"]].sum(axis=1)
+    else:
+        grouped["total"] = grouped[["survey"]].sum(axis=1)
+
+    grouped = grouped.sort_values(["iso_year", "iso_week"]).reset_index(drop=True)
+    grouped["week_label"] = grouped["iso_week"].astype(int).apply(lambda x: f"Week {x}")
+    weeks_n = max(1, len(grouped.index))
+    weekly_target = (monthly_target / weeks_n) if monthly_target > 0 else 0
+    grouped["target"] = weekly_target
+    grouped["progress_rate"] = grouped["total"].apply(lambda x: round((x / weekly_target) * 100, 1) if weekly_target > 0 else 0)
+    return grouped[["week_label", "new", "exist", "line", "survey", "total", "target", "progress_rate"]]
+
 def show_statistics(category: str, label: str):
     df_all = ensure_dataframe(st.session_state.data)
-    ym = current_year_month()
+
+    render_section_title(label, "Dark SaaS dashboard")
 
     # --- 週別合計（選月→該月按 ISO 週分組；label 會顯示 ISO 年） ---
     st.subheader("週別合計")
-    yearsW = year_options_calendar(df_all)  # 這裡選的是公曆年+月（看起來比較直覺）
+    yearsW = year_options_calendar(df_all)
     default_yearW = date.today().year if date.today().year in yearsW else yearsW[-1]
     colY, colM = st.columns(2)
     with colY:
@@ -322,6 +361,21 @@ def show_statistics(category: str, label: str):
     else:
         df_monthW = df_monthW[df_monthW["type"] == "survey"]
 
+    monthly_target = get_target_safe(monthW, category)
+    weekly_progress = build_weekly_progress_df(df_monthW, monthly_target, category)
+    month_total = int(weekly_progress["total"].sum()) if not weekly_progress.empty else 0
+    month_rate = round((month_total / monthly_target) * 100, 1) if monthly_target > 0 else 0
+    weekly_total = int(weekly_progress["total"].iloc[-1]) if not weekly_progress.empty else 0
+    prev_total = int(weekly_progress["total"].iloc[-2]) if len(weekly_progress) > 1 else 0
+    delta_pct = round(((weekly_total - prev_total) / prev_total) * 100, 1) if prev_total > 0 else (100.0 if weekly_total > 0 else 0.0)
+
+    render_kpi_row([
+        ("MTD Count", f"{month_total}", "件", None),
+        ("Monthly Target", f"{monthly_target}", "件", None),
+        ("Progress Rate", f"{month_rate}", "%", f"{delta_pct:+.1f}% vs last week"),
+        ("Weekly Total", f"{weekly_total}", "件", None),
+    ])
+
     if df_monthW.empty:
         st.info("この月のデータがありません。")
     else:
@@ -341,13 +395,18 @@ def show_statistics(category: str, label: str):
         st.caption(f"表示中：{monthW}（ISO週）")
         st.dataframe(weekly[["w", "count"]].rename(columns={"count": "合計"}), use_container_width=True)
 
-    # --- 週別推移グラフ（単週の Mon..Sun）: ISO 年で選択 ✅ ---
     st.subheader("週別推移グラフ")
+    if not weekly_progress.empty:
+        weekly_progress_chart(weekly_progress, category=category)
+    else:
+        st.info("表示できる週別データがありません。")
+
+    # --- 週ごとの曜日別表（既存機能は維持） ---
     yearsD = year_options_iso(df_all)
     default_yearD = date.today().isocalendar().year if date.today().isocalendar().year in yearsD else yearsD[-1]
     colDY, colDW = st.columns([1, 1])
     with colDY:
-        yearD = st.selectbox("年（週別推移グラフ）", options=yearsD, index=yearsD.index(default_yearD), key=f"daily_year_{category}")
+        yearD = st.selectbox("年（曜日別明細）", options=yearsD, index=yearsD.index(default_yearD), key=f"daily_year_{category}")
 
     df_yearD = df_all[df_all["iso_year"].astype("Int64") == int(yearD)].copy()
     if category == "app":
@@ -371,20 +430,10 @@ def show_statistics(category: str, label: str):
     df_week = df_yearD.copy()
     df_week["iso_week"] = df_week["iso_week"].astype(int)
     df_week = df_week[df_week["iso_week"] == sel_week_num].copy()
-    df_week["weekday"] = df_week["date"].dt.weekday  # 0=Mon..6=Sun
+    df_week["weekday"] = df_week["date"].dt.weekday
 
     daily = df_week.groupby("weekday")["count"].sum().reindex(range(7), fill_value=0).reset_index()
     daily["label"] = daily["weekday"].map({0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"})
-
-    fig = plt.figure()
-    plt.plot(daily["label"], daily["count"], marker="o")
-    if category == "survey":
-        plt.title(f"Survey Daily: {yearD} {sel_week_label}")
-    else:
-        plt.title(f"{label} Daily Totals: {yearD} {sel_week_label}")
-    plt.xlabel("")
-    plt.ylabel("Count")
-    st.pyplot(fig, clear_figure=True)
 
     st.dataframe(
         daily[["label", "count"]].rename(columns={"label": "Day", "count": "Total"}),
