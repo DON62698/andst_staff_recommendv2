@@ -8,7 +8,7 @@ import pandas as pd
 import streamlit as st
 import matplotlib.pyplot as plt
 
-from ui_theme_dark import apply_dark_theme, render_kpi_row, render_section_title
+from ui_theme_dark import apply_dark_theme, render_kpi_row, render_section_title, detect_device_theme
 from charts_dark import weekly_progress_chart
 
 # -----------------------------
@@ -19,8 +19,9 @@ try:
 except Exception:
     pass
 
+DEVICE_THEME = detect_device_theme()
 st.title("and st Men's")
-apply_dark_theme()
+apply_dark_theme(DEVICE_THEME)
 
 # -----------------------------
 # Japanese font (best-effort; 防止日文亂碼)
@@ -104,17 +105,19 @@ def get_chart_theme_key(category: str) -> str:
 
 
 def get_chart_theme(category: str) -> str:
-    return st.session_state.get(get_chart_theme_key(category), "dark")
+    default_theme = "light" if DEVICE_THEME == "light" else "dark"
+    return st.session_state.get(get_chart_theme_key(category), default_theme)
 
 
 def render_chart_theme_toggle(category: str):
     key = get_chart_theme_key(category)
-    current = st.session_state.get(key, "dark")
+    default_theme = "light" if DEVICE_THEME == "light" else "dark"
+    current = st.session_state.get(key, default_theme)
     label = "表示モード（Chart）"
-    options = ["Dark", "Print"]
+    options = ["Screen", "Print"]
     index = 0 if current == "dark" else 1
     choice = st.radio(label, options=options, index=index, horizontal=True, key=f"{key}_radio")
-    st.session_state[key] = "dark" if choice == "Dark" else "light"
+    st.session_state[key] = "dark" if choice == "Screen" else "light"
     st.caption("Print を選ぶと、円グラフ・月別棒グラフ・週別推移グラフを白背景で表示できます。")
 
 
@@ -500,7 +503,7 @@ def show_statistics(category: str, label: str):
         if total > 0:
             st.caption(caption)
             pie_bg = "#FFFFFF" if chart_theme == "light" else "#151A2D"
-            pie_fg = "#111827" if chart_theme == "light" else "#F3F4F6"
+            pie_fg = "#000000" if chart_theme == "light" else "#F3F4F6"
             fig, ax = plt.subplots(figsize=(6, 4), facecolor=pie_bg)
             ax.set_facecolor(pie_bg)
             labels = ["New", "Existing", "LINE"]
@@ -600,8 +603,8 @@ def show_statistics(category: str, label: str):
         values = monthly.values.tolist()
 
         bar_bg = "#FFFFFF" if chart_theme == "light" else "#151A2D"
-        bar_fg = "#111827" if chart_theme == "light" else "#F3F4F6"
-        grid_c = "#D1D5DB" if chart_theme == "light" else "#2A314D"
+        bar_fg = "#000000" if chart_theme == "light" else "#F3F4F6"
+        grid_c = "#CFCFCF" if chart_theme == "light" else "#2A314D"
         palette = ["#3B82F6", "#F59E0B", "#22C55E"]
         fig, ax = plt.subplots(figsize=(8, 4.2), facecolor=bar_bg)
         ax.set_facecolor(bar_bg)
