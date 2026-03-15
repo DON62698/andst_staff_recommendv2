@@ -1,3 +1,7 @@
+
+from ui_theme_dark import apply_dark_theme,kpi
+from charts_dark import weekly_progress_chart
+apply_dark_theme()
 # -*- coding: utf-8 -*-
 import os
 from datetime import date
