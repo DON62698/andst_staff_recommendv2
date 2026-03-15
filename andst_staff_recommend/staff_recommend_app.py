@@ -99,6 +99,25 @@ def ymd(d: date) -> str:
 def current_year_month() -> str:
     return date.today().strftime("%Y-%m")
 
+def get_chart_theme_key(category: str) -> str:
+    return f"chart_theme_{category}"
+
+
+def get_chart_theme(category: str) -> str:
+    return st.session_state.get(get_chart_theme_key(category), "dark")
+
+
+def render_chart_theme_toggle(category: str):
+    key = get_chart_theme_key(category)
+    current = st.session_state.get(key, "dark")
+    label = "表示モード（Chart）"
+    options = ["Dark", "Print"]
+    index = 0 if current == "dark" else 1
+    choice = st.radio(label, options=options, index=index, horizontal=True, key=f"{key}_radio")
+    st.session_state[key] = "dark" if choice == "Dark" else "light"
+    st.caption("Print を選ぶと、円グラフ・月別棒グラフ・週別推移グラフを白背景で表示できます。")
+
+
 def ensure_dataframe(records) -> pd.DataFrame:
     """
     records: list[dict] with at least date, name, type, count
@@ -334,6 +353,8 @@ def show_statistics(category: str, label: str):
     df_all = ensure_dataframe(st.session_state.data)
 
     render_section_title(label, "Dark SaaS dashboard")
+    render_chart_theme_toggle(category)
+    chart_theme = get_chart_theme(category)
 
     # --- 週別合計（選月→該月按 ISO 週分組；label 會顯示 ISO 年） ---
     st.subheader("週別合計")
@@ -370,10 +391,10 @@ def show_statistics(category: str, label: str):
     delta_pct = round(((weekly_total - prev_total) / prev_total) * 100, 1) if prev_total > 0 else (100.0 if weekly_total > 0 else 0.0)
 
     render_kpi_row([
-        ("MTD Count", f"{month_total}", "件", None),
-        ("Monthly Target", f"{monthly_target}", "件", None),
-        ("Progress Rate", f"{month_rate}", "%", f"{delta_pct:+.1f}% vs last week"),
-        ("Weekly Total", f"{weekly_total}", "件", None),
+        ("月間累計", f"{month_total}", "件", None),
+        ("月間目標", f"{monthly_target}", "件", None),
+        ("遂行率", f"{month_rate}", "%", f"前週比 {delta_pct:+.1f}%"),
+        ("週間累計", f"{weekly_total}", "件", None),
     ])
 
     if df_monthW.empty:
@@ -397,7 +418,7 @@ def show_statistics(category: str, label: str):
 
     st.subheader("週別推移グラフ")
     if not weekly_progress.empty:
-        weekly_progress_chart(weekly_progress, category=category)
+        weekly_progress_chart(weekly_progress, category=category, theme=chart_theme)
     else:
         st.info("表示できる週別データがありません。")
 
@@ -478,11 +499,28 @@ def show_statistics(category: str, label: str):
 
         if total > 0:
             st.caption(caption)
-            plt.figure()
-            labels = ["New", "Exist", "LINE"]
-            plt.pie([new_sum, exist_sum, line_sum], labels=labels, autopct="%1.1f%%", startangle=90)
-            plt.title("Composition (New / Exist / LINE)")
-            st.pyplot(plt.gcf())
+            pie_bg = "#FFFFFF" if chart_theme == "light" else "#151A2D"
+            pie_fg = "#111827" if chart_theme == "light" else "#F3F4F6"
+            fig, ax = plt.subplots(figsize=(6, 4), facecolor=pie_bg)
+            ax.set_facecolor(pie_bg)
+            labels = ["New", "Existing", "LINE"]
+            colors = ["#3B82F6", "#F59E0B", "#22C55E"]
+            wedges, texts, autotexts = ax.pie(
+                [new_sum, exist_sum, line_sum],
+                labels=labels,
+                autopct="%1.1f%%",
+                startangle=90,
+                colors=colors,
+                textprops={"color": pie_fg, "fontsize": 10},
+                wedgeprops={"edgecolor": pie_bg, "linewidth": 1},
+            )
+            ax.set_title("Composition (New / Existing / LINE)", color=pie_fg)
+            for t in autotexts:
+                t.set_color(pie_fg)
+                t.set_fontsize(10)
+            fig.patch.set_facecolor(pie_bg)
+            st.pyplot(fig)
+            plt.close(fig)
         else:
             st.info("対象データがありません。")
 
@@ -561,17 +599,28 @@ def show_statistics(category: str, label: str):
         labels = [calendar.month_abbr[int(s.split("-")[1])] for s in monthly.index.tolist()]
         values = monthly.values.tolist()
 
-        plt.figure()
-        bars = plt.bar(labels, values)
-        plt.grid(True, axis="y", linestyle="--", linewidth=0.5)
-        plt.xticks(rotation=0, ha="center")
-        plt.title(f"{title_label} Monthly totals ({int(year_sel3)})")
+        bar_bg = "#FFFFFF" if chart_theme == "light" else "#151A2D"
+        bar_fg = "#111827" if chart_theme == "light" else "#F3F4F6"
+        grid_c = "#D1D5DB" if chart_theme == "light" else "#2A314D"
+        palette = ["#3B82F6", "#F59E0B", "#22C55E"]
+        fig, ax = plt.subplots(figsize=(8, 4.2), facecolor=bar_bg)
+        ax.set_facecolor(bar_bg)
+        bar_colors = [palette[i % len(palette)] for i in range(len(labels))]
+        bars = ax.bar(labels, values, color=bar_colors)
+        ax.grid(True, axis="y", linestyle="--", linewidth=0.5, color=grid_c)
+        ax.tick_params(axis="x", colors=bar_fg)
+        ax.tick_params(axis="y", colors=bar_fg)
+        ax.set_title(f"{title_label} Monthly totals ({int(year_sel3)})", color=bar_fg)
+        for spine in ax.spines.values():
+            spine.set_color(grid_c)
         ymax = max(values) if values else 0
         if ymax > 0:
-            plt.ylim(0, ymax * 1.15)
+            ax.set_ylim(0, ymax * 1.15)
         for bar, val in zip(bars, values):
-            plt.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f"{int(val)}", ha="center", va="bottom", fontsize=9)
-        st.pyplot(plt.gcf())
+            ax.text(bar.get_x() + bar.get_width()/2, bar.get_height(), f"{int(val)}", ha="center", va="bottom", fontsize=9, color=bar_fg)
+        fig.patch.set_facecolor(bar_bg)
+        st.pyplot(fig)
+        plt.close(fig)
 
 # -----------------------------
 # Tabs
