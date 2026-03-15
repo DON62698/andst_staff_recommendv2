@@ -1,3 +1,7 @@
+
+from ui_theme_dark import apply_dark_theme,kpi
+from charts_dark import weekly_progress_chart
+apply_dark_theme()
 # -*- coding: utf-8 -*-
 import os
 from datetime import date
@@ -12,80 +16,11 @@ import matplotlib.pyplot as plt
 # Page config & title
 # -----------------------------
 try:
-    st.set_page_config(page_title="and st 統計 Team Men's", layout="wide")
+    st.set_page_config(page_title="and st 統計 Team Men's", layout="centered")
 except Exception:
     pass
 
 st.title("and st Men's")
-
-
-# -----------------------------
-# UI styling
-# -----------------------------
-def apply_custom_ui():
-    st.markdown(
-        """
-    <style>
-    .stApp {
-        background: linear-gradient(180deg, #f6f8fb 0%, #eef3f8 100%);
-    }
-    .block-container {
-        padding-top: 1.2rem;
-        padding-bottom: 2rem;
-        max-width: 1380px;
-    }
-    h1, h2, h3 {
-        letter-spacing: .02em;
-    }
-    div[data-baseweb="tab-list"] {
-        gap: 8px;
-        margin-bottom: 8px;
-    }
-    button[data-baseweb="tab"] {
-        background: #ffffff;
-        border-radius: 12px;
-        padding: 10px 18px;
-        border: 1px solid rgba(32, 55, 90, .08);
-    }
-    button[data-baseweb="tab"][aria-selected="true"] {
-        background: linear-gradient(135deg, #1d4ed8 0%, #2563eb 100%);
-        color: white;
-        border-color: transparent;
-        box-shadow: 0 8px 20px rgba(37, 99, 235, .22);
-    }
-    div[data-testid="stMetric"] {
-        background: white;
-        border: 1px solid rgba(32, 55, 90, .08);
-        border-radius: 16px;
-        padding: 10px 14px;
-        box-shadow: 0 8px 24px rgba(15, 23, 42, .05);
-    }
-    div[data-testid="stDataFrame"] {
-        background: white;
-        border: 1px solid rgba(32, 55, 90, .08);
-        box-shadow: 0 8px 24px rgba(15, 23, 42, .05);
-        padding: 6px;
-        border-radius: 18px;
-    }
-    .app-section-card {
-        background: rgba(255,255,255,.85);
-        border: 1px solid rgba(32,55,90,.08);
-        border-radius: 20px;
-        padding: 16px 18px;
-        box-shadow: 0 10px 28px rgba(15, 23, 42, .06);
-        margin-bottom: 14px;
-    }
-    </style>
-    """,
-        unsafe_allow_html=True,
-    )
-
-def section_card(title: str, caption: str | None = None):
-    cap_html = f'<div style="font-size:13px;color:#64748b;margin-top:4px;">{caption}</div>' if caption else ''
-    st.markdown(
-        f'<div class="app-section-card"><div style="font-size:22px;font-weight:800;color:#1e293b;">{title}</div>{cap_html}</div>',
-        unsafe_allow_html=True,
-    )
 
 # -----------------------------
 # Japanese font (best-effort; 防止日文亂碼)
@@ -121,8 +56,6 @@ except Exception:
     JP_FONT_READY = False
 
 rcParams["axes.unicode_minus"] = False
-
-apply_custom_ui()
 
 # -----------------------------
 # Backend（reuse your modules）
@@ -356,96 +289,6 @@ def render_rate_block(category: str, label: str, current_total: int, target: int
             except Exception as e:
                 st.error(f"保存失敗: {e}")
 
-
-
-def _daily_target_for_date(dt_value, category: str) -> float:
-    if pd.isna(dt_value):
-        return 0.0
-    ym = dt_value.strftime("%Y-%m")
-    target = get_target_safe(ym, "app" if category == "app" else "survey")
-    days_in_month = calendar.monthrange(dt_value.year, dt_value.month)[1]
-    return (target / days_in_month) if target > 0 else 0.0
-
-def render_daily_progress_chart(df_week: pd.DataFrame, category: str, label: str, yearD: int, sel_week_label: str):
-    weekday_map = {0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"}
-    week_dates = []
-    for wd in range(7):
-        day_df = df_week[df_week["weekday"] == wd]
-        if not day_df.empty:
-            week_dates.append(day_df["date"].min().normalize())
-        else:
-            week_dates.append(pd.NaT)
-
-    if category == "app":
-        daily_pivot = (
-            df_week.groupby(["weekday", "type"])["count"].sum()
-            .unstack(fill_value=0)
-            .reindex(index=range(7), fill_value=0)
-        )
-        for col in ["new", "exist", "line"]:
-            if col not in daily_pivot.columns:
-                daily_pivot[col] = 0
-        daily = pd.DataFrame({
-            "weekday": range(7),
-            "新規": daily_pivot["new"].astype(int).values,
-            "既存": daily_pivot["exist"].astype(int).values,
-            "LINE": daily_pivot["line"].astype(int).values,
-        })
-    else:
-        survey_daily = df_week.groupby("weekday")["count"].sum().reindex(range(7), fill_value=0)
-        daily = pd.DataFrame({
-            "weekday": range(7),
-            "アンケート": survey_daily.astype(int).values,
-        })
-
-    daily["label"] = daily["weekday"].map(weekday_map)
-    daily["date"] = week_dates
-    count_cols = [c for c in daily.columns if c not in ["weekday", "label", "date"]]
-    daily["count"] = daily[count_cols].sum(axis=1)
-    daily["target"] = daily["date"].apply(lambda x: _daily_target_for_date(x, category))
-    daily["rate"] = daily.apply(lambda r: (r["count"] / r["target"] * 100.0) if r["target"] > 0 else 0.0, axis=1)
-
-    fig, ax = plt.subplots(figsize=(11.5, 5.6))
-    ax.set_facecolor("#ffffff")
-    fig.patch.set_facecolor("#ffffff")
-
-    x = range(7)
-    if category == "app":
-        ax.bar(x, daily["LINE"], label="LINE")
-        ax.bar(x, daily["新規"], bottom=daily["LINE"], label="新規")
-        ax.bar(x, daily["既存"], bottom=(daily["LINE"] + daily["新規"]), label="既存")
-    else:
-        ax.bar(x, daily["アンケート"], label="アンケート")
-
-    target_vals = daily["target"].tolist()
-    if any(v > 0 for v in target_vals):
-        ax.plot(x, target_vals, linestyle="--", linewidth=2.0, label="目標")
-
-    ax2 = ax.twinx()
-    ax2.plot(x, daily["rate"], marker="o", linewidth=2.8, label="遂行率")
-    for xi, yi in zip(x, daily["rate"]):
-        ax2.annotate(f"{yi:.0f}%", (xi, yi), textcoords="offset points", xytext=(0, 10), ha="center", fontsize=11, fontweight="bold")
-
-    ax.set_xticks(list(x))
-    ax.set_xticklabels(daily["label"].tolist(), fontsize=11)
-    ax.set_ylabel("件数")
-    ax2.set_ylabel("遂行率 (%)")
-    ax.set_title(f"{label} 件数と遂行率（日別）  {yearD} {sel_week_label}", fontsize=18, fontweight="bold", pad=18)
-    ax.grid(axis="y", linestyle="--", linewidth=0.7, alpha=0.35)
-    ax.set_axisbelow(True)
-    ax.set_ylim(0, max(1, daily["count"].max(), daily["target"].max()) * 1.35)
-    rate_max = max(120, (int(max(daily["rate"].max(), 100) / 20) + 1) * 20)
-    ax2.set_ylim(0, rate_max)
-
-    handles1, labels1 = ax.get_legend_handles_labels()
-    handles2, labels2 = ax2.get_legend_handles_labels()
-    ax.legend(handles1 + handles2, labels1 + labels2, loc="upper center", bbox_to_anchor=(0.5, 1.03), ncol=min(5, len(labels1 + labels2)), frameon=False)
-
-    plt.tight_layout()
-    st.pyplot(fig, clear_figure=True, use_container_width=True)
-
-    return daily[["label", "count"]].rename(columns={"label": "Day", "count": "Total"})
-
 # -----------------------------
 # Statistics page
 # -----------------------------
@@ -454,7 +297,7 @@ def show_statistics(category: str, label: str):
     ym = current_year_month()
 
     # --- 週別合計（選月→該月按 ISO 週分組；label 會顯示 ISO 年） ---
-    section_card("週別合計", "月を選ぶと、その月に含まれるISO週ごとの合計を一覧表示します。")
+    st.subheader("週別合計")
     yearsW = year_options_calendar(df_all)  # 這裡選的是公曆年+月（看起來比較直覺）
     default_yearW = date.today().year if date.today().year in yearsW else yearsW[-1]
     colY, colM = st.columns(2)
@@ -499,7 +342,7 @@ def show_statistics(category: str, label: str):
         st.dataframe(weekly[["w", "count"]].rename(columns={"count": "合計"}), use_container_width=True)
 
     # --- 週別推移グラフ（単週の Mon..Sun）: ISO 年で選択 ✅ ---
-    section_card("週別推移グラフ", "棒グラフで件数、折れ線で遂行率を表示します。下の曜日別テーブルはそのまま残しています。")
+    st.subheader("週別推移グラフ")
     yearsD = year_options_iso(df_all)
     default_yearD = date.today().isocalendar().year if date.today().isocalendar().year in yearsD else yearsD[-1]
     colDY, colDW = st.columns([1, 1])
@@ -530,13 +373,27 @@ def show_statistics(category: str, label: str):
     df_week = df_week[df_week["iso_week"] == sel_week_num].copy()
     df_week["weekday"] = df_week["date"].dt.weekday  # 0=Mon..6=Sun
 
-    daily_table = render_daily_progress_chart(df_week, category, label, yearD, sel_week_label)
+    daily = df_week.groupby("weekday")["count"].sum().reindex(range(7), fill_value=0).reset_index()
+    daily["label"] = daily["weekday"].map({0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"})
 
-    st.dataframe(daily_table, use_container_width=True)
+    fig = plt.figure()
+    plt.plot(daily["label"], daily["count"], marker="o")
+    if category == "survey":
+        plt.title(f"Survey Daily: {yearD} {sel_week_label}")
+    else:
+        plt.title(f"{label} Daily Totals: {yearD} {sel_week_label}")
+    plt.xlabel("")
+    plt.ylabel("Count")
+    st.pyplot(fig, clear_figure=True)
+
+    st.dataframe(
+        daily[["label", "count"]].rename(columns={"label": "Day", "count": "Total"}),
+        use_container_width=True
+    )
 
     # --- 構成比（App only）: 週選択は ISO 年で ✅ ---
     if category == "app":
-        section_card("構成比（新規・既存・LINE）", "対象期間を切り替えて、内訳のバランスを確認できます。")
+        st.subheader("構成比（新規・既存・LINE）")
         colYc, colp1, colp2 = st.columns([1, 1, 2])
 
         years = year_options_iso(df_all)
@@ -581,7 +438,7 @@ def show_statistics(category: str, label: str):
             st.info("対象データがありません。")
 
     # --- スタッフ別 合計（週選択は ISO 年で ✅）---
-    section_card("スタッフ別 合計", "週・月・年ごとにスタッフ別の実績を比較できます。")
+    st.subheader("スタッフ別 合計")
     colYs, cpt1, cpt2 = st.columns([1, 1, 2])
 
     years2 = year_options_iso(df_all)
@@ -632,7 +489,7 @@ def show_statistics(category: str, label: str):
         st.dataframe(staff_sum[["順位", "スタッフ", "合計"]], use_container_width=True)
 
     # --- 月別累計（年次）：公曆年/月，不受 ISO 影響 ✅ ---
-    section_card("月別累計（年次）", "年間の推移を月単位で比較できます。")
+    st.subheader("月別累計（年次）")
     years3 = year_options_calendar(df_all)
     default_year3 = date.today().year if date.today().year in years3 else years3[-1]
     year_sel3 = st.selectbox("年を選択", options=years3, index=years3.index(default_year3), key=f"monthly_year_{category}")
@@ -676,7 +533,7 @@ tab_reg, tab3, tab4, tab5 = st.tabs(["件数登録", "and st 分析", "アンケ
 # 件数登録（and st + アンケート 合併）
 # -----------------------------
 with tab_reg:
-    section_card("件数登録", "スタッフごとの and st / アンケート件数を登録します。")
+    st.subheader("件数登録")
     with st.form("reg_form"):
         c1, c2 = st.columns([2, 2])
         with c1:
@@ -751,7 +608,7 @@ with tab_reg:
     except Exception:
         survey_target = 0
 
-    section_card("達成率", "今月の累計と目標に対する進捗を表示します。")
+    st.markdown("### 達成率")
     _c1, _c2 = st.columns(2)
     with _c1:
         st.caption("and st")
