@@ -9,7 +9,7 @@ def _theme_palette(theme: str = "dark"):
         return {
             "paper": "#FFFFFF",
             "plot": "#FFFFFF",
-            "grid": "#D1D5DB",
+            "grid": "#E5E7EB",
             "text": "#111827",
             "border": "#E5E7EB",
             "new": "#3B82F6",
@@ -89,3 +89,5 @@ def weekly_progress_chart(df: pd.DataFrame, category: str = "app", theme: str = 
     )
 
     st.plotly_chart(fig, use_container_width=True, config={"displayModeBar": False, "responsive": True})
+
+# adjustments: larger bargap for PC print clarity and improved grid colors
