@@ -37,6 +37,11 @@ def apply_dark_theme():
             border: 1px solid #232845;
             border-radius: 12px;
         }
+        [data-baseweb="select"] > div,
+        [data-baseweb="input"] > div,
+        [data-baseweb="popover"] [role="listbox"] {
+            color: #F3F4F6;
+        }
         .stButton > button, .stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {
             background: #2563eb;
             color: #fff;
@@ -92,6 +97,101 @@ def apply_dark_theme():
             border-radius: 16px;
             overflow: hidden;
         }
+
+        /* PC light theme */
+        @media (min-width: 769px) {
+            .stApp {
+                background: #FFFFFF !important;
+                color: #111827 !important;
+            }
+            [data-testid="stAppViewContainer"],
+            [data-testid="stHeader"] {
+                background: #FFFFFF !important;
+            }
+            [data-testid="stSidebar"],
+            [data-testid="stSidebar"] > div {
+                background: #FFFFFF !important;
+                border-right: 1px solid #E5E7EB;
+            }
+            h1, h2, h3, h4, h5, h6, p, label, span, div,
+            [data-testid="stMarkdownContainer"],
+            [data-testid="stCaptionContainer"] {
+                color: #111827 !important;
+            }
+            .section-sub,
+            .dark-card .label,
+            .dark-card .unit,
+            .stCaption {
+                color: #6B7280 !important;
+            }
+            [data-testid="stTabs"] button {
+                color: #6B7280 !important;
+                background: transparent !important;
+            }
+            [data-testid="stTabs"] button[aria-selected="true"] {
+                color: #111827 !important;
+                border-bottom: 2px solid #111827 !important;
+            }
+            [data-testid="stSelectbox"] > div,
+            [data-testid="stDateInput"] > div,
+            [data-testid="stNumberInput"] > div,
+            [data-testid="stTextInput"] > div,
+            [data-baseweb="select"] > div,
+            [data-baseweb="input"] > div {
+                background: #FFFFFF !important;
+                border: 1px solid #D1D5DB !important;
+                color: #111827 !important;
+                border-radius: 12px;
+            }
+            [data-baseweb="select"] input,
+            [data-baseweb="select"] span,
+            [data-baseweb="select"] div,
+            [data-baseweb="input"] input,
+            [data-baseweb="input"] div,
+            [data-testid="stDateInput"] input,
+            [data-testid="stNumberInput"] input,
+            [data-testid="stTextInput"] input {
+                color: #111827 !important;
+                -webkit-text-fill-color: #111827 !important;
+            }
+            div[data-baseweb="popover"] {
+                background: #FFFFFF !important;
+                color: #111827 !important;
+            }
+            div[data-baseweb="popover"] ul,
+            div[data-baseweb="popover"] li,
+            div[data-baseweb="popover"] div,
+            div[data-baseweb="popover"] span,
+            div[role="listbox"],
+            div[role="option"] {
+                background: #FFFFFF !important;
+                color: #111827 !important;
+            }
+            div[role="option"]:hover {
+                background: #F3F4F6 !important;
+            }
+            .stButton > button, .stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {
+                background: #111827 !important;
+                color: #FFFFFF !important;
+                border: 1px solid #111827 !important;
+            }
+            .dark-card {
+                background: #F7F7F8 !important;
+                border: 1px solid #E5E7EB !important;
+                box-shadow: 0 4px 14px rgba(17, 24, 39, 0.06) !important;
+            }
+            .dark-card .value {
+                color: #111827 !important;
+            }
+            .dark-card .sub {
+                color: #059669 !important;
+            }
+            [data-testid="stDataFrame"] {
+                border: 1px solid #E5E7EB !important;
+                background: #FFFFFF !important;
+            }
+        }
+
         @media (max-width: 768px) {
             .block-container { padding-left: 0.8rem; padding-right: 0.8rem; }
             .dark-card { min-height: 100px; padding: 0.9rem; }
