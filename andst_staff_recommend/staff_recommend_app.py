@@ -737,3 +737,45 @@ with tab5:
         show_data_management()
     except Exception as e:
         st.error(f"データ管理画面の読み込みに失敗しました: {e}")
+
+
+# ======== Export Section Added ========
+import io, zipfile
+import plotly.io as pio
+from PIL import Image, ImageDraw
+
+st.markdown("---")
+with st.expander("📄 出力設定", expanded=False):
+
+    theme = st.radio("配色テーマ", ["通常（アプリ）", "白背景（印刷用）"])
+
+    export_bar = st.checkbox("月別長條圖", value=True)
+    export_pie = st.checkbox("圓餅圖", value=True)
+
+    if st.button("📥 PNGでダウンロード"):
+
+        zip_buffer = io.BytesIO()
+
+        with zipfile.ZipFile(zip_buffer, "w") as z:
+
+            try:
+                if export_bar and 'fig_bar' in globals():
+                    fig = fig_bar
+                    if theme == "白背景（印刷用）":
+                        fig.update_layout(paper_bgcolor="white", plot_bgcolor="white", font=dict(color="black"))
+                    z.writestr("bar.png", pio.to_image(fig, format="png", scale=2))
+            except:
+                pass
+
+            try:
+                if export_pie and 'fig_pie' in globals():
+                    fig = fig_pie
+                    if theme == "白背景（印刷用）":
+                        fig.update_layout(paper_bgcolor="white", font=dict(color="black"))
+                    z.writestr("pie.png", pio.to_image(fig, format="png", scale=2))
+            except:
+                pass
+
+        st.download_button("ダウンロード", zip_buffer.getvalue(), "report_images.zip", "application/zip")
+
+# ======== End Export Section ========
