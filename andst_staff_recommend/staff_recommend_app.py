@@ -447,7 +447,7 @@ def show_statistics(category: str, label: str):
     default_week_label = current_week_label if current_week_label in week_options else (week_options[-1] if week_options else current_week_label)
     with colW:
         selected_week_label = st.selectbox(
-            "週（完整週）",
+            "週",
             options=week_options or [default_week_label],
             index=(week_options or [default_week_label]).index(default_week_label),
             key=f"weekly_focus_week_{category}",
@@ -482,7 +482,7 @@ def show_statistics(category: str, label: str):
         ("月間累計", f"{month_total}", "件", None),
         ("月間目標", f"{monthly_target}", "件", None),
         ("遂行率", f"{month_rate}", "%", "月基準"),
-        (f"選択週累計（w{selected_week_num:02d}）", f"{weekly_total}", "件", f"前週 {prev_total}件 / {delta_value:+d}件 ({delta_pct:+.1f}%)"),
+        (f"w{selected_week_num:02d}週累計", f"{weekly_total}", "件", f"前週 {prev_total}件 / {delta_value:+d}件 ({delta_pct:+.1f}%)"),
     ])
     if week_range_text:
         st.caption(f"選択週: {selected_week_label} / {week_range_text}　※完整週ベースで集計")
