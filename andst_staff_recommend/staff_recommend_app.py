@@ -321,6 +321,70 @@ def week_count_in_month(ym: str) -> int:
     except Exception:
         return 4
 
+
+def weeks_touching_month(df: pd.DataFrame, ym: str) -> list[tuple[int, int]]:
+    if df.empty or "date" not in df.columns:
+        return []
+    dfx = df.dropna(subset=["date"]).copy()
+    if dfx.empty:
+        return []
+    month_rows = dfx[dfx["date"].dt.strftime("%Y-%m") == str(ym)].copy()
+    if month_rows.empty:
+        return []
+    if "iso_year" not in month_rows.columns or "iso_week" not in month_rows.columns:
+        iso = month_rows["date"].dt.isocalendar()
+        month_rows["iso_year"] = iso["year"].astype(int)
+        month_rows["iso_week"] = iso["week"].astype(int)
+    pairs = (
+        month_rows[["iso_year", "iso_week"]]
+        .dropna()
+        .astype(int)
+        .drop_duplicates()
+        .sort_values(["iso_year", "iso_week"])
+    )
+    return [tuple(x) for x in pairs[["iso_year", "iso_week"]].itertuples(index=False, name=None)]
+
+
+def week_label(iso_year: int, iso_week: int) -> str:
+    return f"{int(iso_year)}-w{int(iso_week):02d}"
+
+
+def previous_iso_week(iso_year: int, iso_week: int) -> tuple[int, int]:
+    try:
+        monday = date.fromisocalendar(int(iso_year), int(iso_week), 1)
+        py, pw, _ = (monday - pd.Timedelta(days=7)).isocalendar()
+        return int(py), int(pw)
+    except Exception:
+        return int(iso_year), max(1, int(iso_week) - 1)
+
+
+def get_full_week_df(df: pd.DataFrame, iso_year: int, iso_week: int, category: str) -> pd.DataFrame:
+    if df.empty:
+        return df.iloc[0:0].copy()
+    dfx = df.copy()
+    if "iso_year" not in dfx.columns or "iso_week" not in dfx.columns:
+        iso = dfx["date"].dt.isocalendar()
+        dfx["iso_year"] = iso["year"].astype(int)
+        dfx["iso_week"] = iso["week"].astype(int)
+    dfx = dfx[(dfx["iso_year"].astype(int) == int(iso_year)) & (dfx["iso_week"].astype(int) == int(iso_week))].copy()
+    if category == "app":
+        return dfx[dfx["type"].isin(["new", "exist", "line"])]
+    return dfx[dfx["type"] == "survey"]
+
+
+def get_week_total(df: pd.DataFrame, iso_year: int, iso_week: int, category: str) -> int:
+    dfx = get_full_week_df(df, iso_year, iso_week, category)
+    return int(dfx["count"].sum()) if not dfx.empty else 0
+
+
+def get_week_range_label(iso_year: int, iso_week: int) -> str:
+    try:
+        start = date.fromisocalendar(int(iso_year), int(iso_week), 1)
+        end = date.fromisocalendar(int(iso_year), int(iso_week), 7)
+        return f"{start.strftime('%m/%d')} - {end.strftime('%m/%d')}"
+    except Exception:
+        return ""
+
 def build_weekly_progress_df(df_month: pd.DataFrame, monthly_target: int, category: str) -> pd.DataFrame:
     if df_month.empty:
         return pd.DataFrame(columns=["week_label", "new", "exist", "line", "survey", "total", "target", "progress_rate"])
@@ -360,7 +424,7 @@ def show_statistics(category: str, label: str):
     st.subheader("週別合計")
     yearsW = year_options_calendar(df_all)
     default_yearW = date.today().year if date.today().year in yearsW else yearsW[-1]
-    colY, colM = st.columns(2)
+    colY, colM, colW = st.columns([1, 1, 1])
     with colY:
         yearW = st.selectbox("年（週集計）", options=yearsW, index=yearsW.index(default_yearW), key=f"weekly_year_{category}")
 
@@ -376,6 +440,26 @@ def show_statistics(category: str, label: str):
     with colM:
         monthW = st.selectbox("月", options=months_in_year, index=months_in_year.index(default_monthW), key=f"weekly_month_{category}")
 
+    week_pairs = weeks_touching_month(df_all, monthW)
+    week_options = [week_label(y, w) for y, w in week_pairs]
+    today_iso = date.today().isocalendar()
+    current_week_label = week_label(int(today_iso.year), int(today_iso.week))
+    default_week_label = current_week_label if current_week_label in week_options else (week_options[-1] if week_options else current_week_label)
+    with colW:
+        selected_week_label = st.selectbox(
+            "週（完整週）",
+            options=week_options or [default_week_label],
+            index=(week_options or [default_week_label]).index(default_week_label),
+            key=f"weekly_focus_week_{category}",
+        )
+
+    try:
+        selected_week_year = int(str(selected_week_label).split("-w")[0])
+        selected_week_num = int(str(selected_week_label).split("-w")[1])
+    except Exception:
+        selected_week_year = int(today_iso.year)
+        selected_week_num = int(today_iso.week)
+
     df_monthW = df_all[df_all["date"].dt.strftime("%Y-%m") == monthW].copy()
     if category == "app":
         df_monthW = df_monthW[df_monthW["type"].isin(["new", "exist", "line"])]
@@ -386,16 +470,22 @@ def show_statistics(category: str, label: str):
     weekly_progress = build_weekly_progress_df(df_monthW, monthly_target, category)
     month_total = int(weekly_progress["total"].sum()) if not weekly_progress.empty else 0
     month_rate = round((month_total / monthly_target) * 100, 1) if monthly_target > 0 else 0
-    weekly_total = int(weekly_progress["total"].iloc[-1]) if not weekly_progress.empty else 0
-    prev_total = int(weekly_progress["total"].iloc[-2]) if len(weekly_progress) > 1 else 0
+
+    weekly_total = get_week_total(df_all, selected_week_year, selected_week_num, category)
+    prev_year, prev_week_num = previous_iso_week(selected_week_year, selected_week_num)
+    prev_total = get_week_total(df_all, prev_year, prev_week_num, category)
+    delta_value = weekly_total - prev_total
     delta_pct = round(((weekly_total - prev_total) / prev_total) * 100, 1) if prev_total > 0 else (100.0 if weekly_total > 0 else 0.0)
+    week_range_text = get_week_range_label(selected_week_year, selected_week_num)
 
     render_kpi_row([
         ("月間累計", f"{month_total}", "件", None),
         ("月間目標", f"{monthly_target}", "件", None),
-        ("遂行率", f"{month_rate}", "%", f"前週比 {delta_pct:+.1f}%"),
-        ("週間累計", f"{weekly_total}", "件", None),
+        ("遂行率", f"{month_rate}", "%", "月基準"),
+        (f"選択週累計（w{selected_week_num:02d}）", f"{weekly_total}", "件", f"前週 {prev_total}件 / {delta_value:+d}件 ({delta_pct:+.1f}%)"),
     ])
+    if week_range_text:
+        st.caption(f"選択週: {selected_week_label} / {week_range_text}　※完整週ベースで集計")
 
     if df_monthW.empty:
         st.info("この月のデータがありません。")
@@ -422,36 +512,10 @@ def show_statistics(category: str, label: str):
     else:
         st.info("表示できる週別データがありません。")
 
-    # --- 週ごとの曜日別表（既存機能は維持） ---
-    yearsD = year_options_iso(df_all)
-    default_yearD = date.today().isocalendar().year if date.today().isocalendar().year in yearsD else yearsD[-1]
-    colDY, colDW = st.columns([1, 1])
-    with colDY:
-        yearD = st.selectbox("年（曜日別明細）", options=yearsD, index=yearsD.index(default_yearD), key=f"daily_year_{category}")
-
-    df_yearD = df_all[df_all["iso_year"].astype("Int64") == int(yearD)].copy()
-    if category == "app":
-        df_yearD = df_yearD[df_yearD["type"].isin(["new", "exist", "line"])]
-    else:
-        df_yearD = df_yearD[df_yearD["type"] == "survey"]
-
-    weeksD = sorted(set(df_yearD["iso_week"].dropna().astype(int).tolist()))
-    week_labels = [f"w{w:02d}" for w in weeksD] or [f"w{date.today().isocalendar().week:02d}"]
-    default_wlabel = f"w{date.today().isocalendar().week:02d}"
-    if default_wlabel not in week_labels:
-        default_wlabel = week_labels[0]
-    with colDW:
-        sel_week_label = st.selectbox("週", options=week_labels, index=week_labels.index(default_wlabel), key=f"daily_week_{category}")
-
-    try:
-        sel_week_num = int(sel_week_label.lstrip("w"))
-    except Exception:
-        sel_week_num = date.today().isocalendar().week
-
-    df_week = df_yearD.copy()
-    df_week["iso_week"] = df_week["iso_week"].astype(int)
-    df_week = df_week[df_week["iso_week"] == sel_week_num].copy()
-    df_week["weekday"] = df_week["date"].dt.weekday
+    # --- 週ごとの曜日別表（上の選択週に連動） ---
+    st.caption(f"曜日別明細：{selected_week_label}")
+    df_week = get_full_week_df(df_all, selected_week_year, selected_week_num, category).copy()
+    df_week["weekday"] = df_week["date"].dt.weekday if not df_week.empty else pd.Series(dtype=int)
 
     daily = df_week.groupby("weekday")["count"].sum().reindex(range(7), fill_value=0).reset_index()
     daily["label"] = daily["weekday"].map({0: "Mon", 1: "Tue", 2: "Wed", 3: "Thu", 4: "Fri", 5: "Sat", 6: "Sun"})
