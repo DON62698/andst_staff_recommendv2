@@ -175,10 +175,6 @@ def apply_dark_theme():
                 color: #FFFFFF !important;
                 border: 1px solid #111827 !important;
             }
-            .stButton > button *, .stDownloadButton > button *, div[data-testid="stFormSubmitButton"] > button * {
-                color: #FFFFFF !important;
-                -webkit-text-fill-color: #FFFFFF !important;
-            }
             .dark-card {
                 background: #F7F7F8 !important;
                 border: 1px solid #E5E7EB !important;
