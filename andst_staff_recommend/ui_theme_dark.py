@@ -9,6 +9,15 @@ def apply_dark_theme():
             background: linear-gradient(180deg, #090d16 0%, #0b0f1a 100%);
             color: #F3F4F6;
         }
+        [data-testid="stAppViewContainer"],
+        [data-testid="stHeader"] {
+            background: linear-gradient(180deg, #090d16 0%, #0b0f1a 100%);
+        }
+        [data-testid="stSidebar"],
+        [data-testid="stSidebar"] > div {
+            background: #0b1020;
+            border-right: 1px solid #232845;
+        }
         .block-container {
             max-width: 1300px;
             padding-top: 1.5rem;
@@ -16,6 +25,11 @@ def apply_dark_theme():
         }
         h1, h2, h3, h4, h5, h6, p, label, span, div {
             color: #F3F4F6;
+        }
+        [data-testid="stMarkdownContainer"],
+        [data-testid="stCaptionContainer"],
+        .stCaption {
+            color: #cdd5df;
         }
         [data-testid="stTabs"] button {
             color: #cdd5df;
@@ -38,9 +52,45 @@ def apply_dark_theme():
             border-radius: 12px;
         }
         [data-baseweb="select"] > div,
-        [data-baseweb="input"] > div,
-        [data-baseweb="popover"] [role="listbox"] {
-            color: #F3F4F6;
+        [data-baseweb="input"] > div {
+            background: #12182a !important;
+            border: 1px solid #232845 !important;
+            color: #F3F4F6 !important;
+            border-radius: 12px;
+            box-shadow: none !important;
+        }
+        [data-baseweb="select"] input,
+        [data-baseweb="select"] span,
+        [data-baseweb="select"] div,
+        [data-baseweb="input"] input,
+        [data-baseweb="input"] div,
+        [data-testid="stDateInput"] input,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stTextInput"] input {
+            color: #F3F4F6 !important;
+            -webkit-text-fill-color: #F3F4F6 !important;
+            caret-color: #F3F4F6 !important;
+        }
+        div[data-baseweb="popover"] {
+            background: #12182a !important;
+            color: #F3F4F6 !important;
+            border: 1px solid #232845 !important;
+            border-radius: 12px !important;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.35) !important;
+        }
+        div[data-baseweb="popover"] ul,
+        div[data-baseweb="popover"] li,
+        div[data-baseweb="popover"] div,
+        div[data-baseweb="popover"] span,
+        div[role="listbox"],
+        div[role="option"] {
+            background: #12182a !important;
+            color: #F3F4F6 !important;
+        }
+        div[role="option"]:hover,
+        div[role="option"][aria-selected="true"] {
+            background: #1c2640 !important;
+            color: #FFFFFF !important;
         }
         .stButton > button, .stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {
             background: #2563eb;
@@ -96,10 +146,11 @@ def apply_dark_theme():
             border: 1px solid #232845;
             border-radius: 16px;
             overflow: hidden;
+            background: #12182a !important;
         }
 
-        /* PC light theme */
-        @media (min-width: 769px) {
+        /* PC: force light / print style. Touch devices like iPad stay dark. */
+        @media (min-width: 1024px) and (hover: hover) and (pointer: fine) {
             .stApp {
                 background: #FFFFFF !important;
                 color: #111827 !important;
@@ -153,10 +204,13 @@ def apply_dark_theme():
             [data-testid="stTextInput"] input {
                 color: #111827 !important;
                 -webkit-text-fill-color: #111827 !important;
+                caret-color: #111827 !important;
             }
             div[data-baseweb="popover"] {
                 background: #FFFFFF !important;
                 color: #111827 !important;
+                border: 1px solid #D1D5DB !important;
+                box-shadow: 0 10px 28px rgba(17, 24, 39, 0.08) !important;
             }
             div[data-baseweb="popover"] ul,
             div[data-baseweb="popover"] li,
@@ -167,8 +221,10 @@ def apply_dark_theme():
                 background: #FFFFFF !important;
                 color: #111827 !important;
             }
-            div[role="option"]:hover {
+            div[role="option"]:hover,
+            div[role="option"][aria-selected="true"] {
                 background: #F3F4F6 !important;
+                color: #111827 !important;
             }
             .stButton > button, .stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {
                 background: #111827 !important;
