@@ -121,12 +121,28 @@ def apply_dark_theme():
         }}
 
         .stButton > button, .stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {{
-            background: var(--primary);
-            color: #fff;
-            border: 0;
+            background: var(--primary) !important;
+            color: #FFFFFF !important;
+            border: 1px solid var(--primary) !important;
             border-radius: 12px;
             padding: 0.55rem 1rem;
-            font-weight: 600;
+            font-weight: 700;
+            box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35) !important;
+            transition: all 0.2s ease;
+        }}
+        .stButton > button *, .stDownloadButton > button *, div[data-testid="stFormSubmitButton"] > button * {{
+            color: #FFFFFF !important;
+            -webkit-text-fill-color: #FFFFFF !important;
+        }}
+        .stButton > button:hover, .stDownloadButton > button:hover, div[data-testid="stFormSubmitButton"] > button:hover {{
+            background: #1D4ED8 !important;
+            border-color: #1D4ED8 !important;
+            box-shadow: 0 6px 18px rgba(37, 99, 235, 0.45) !important;
+        }}
+        .stButton > button:active, .stDownloadButton > button:active, div[data-testid="stFormSubmitButton"] > button:active {{
+            background: #1E40AF !important;
+            border-color: #1E40AF !important;
+            transform: scale(0.98);
         }}
 
         .dark-card {{
@@ -318,6 +334,28 @@ def apply_dark_theme():
                 background: var(--bg-light) !important;
                 color: var(--text-light) !important;
                 border-color: var(--border-light-2) !important;
+            }}
+        }}
+
+
+        /* Mobile/tablet preview hardening: keep dataframe dark on touch-width layouts */
+        @media (max-width: {PC_BREAKPOINT_PX - 1}px) {{
+            [data-testid="stDataFrame"],
+            [data-testid="stDataFrame"] [role="grid"],
+            [data-testid="stDataFrame"] [role="table"],
+            [data-testid="stDataFrame"] table,
+            [data-testid="stDataFrame"] [role="columnheader"],
+            [data-testid="stDataFrame"] thead th,
+            [data-testid="stDataFrame"] [role="gridcell"],
+            [data-testid="stDataFrame"] tbody td {{
+                background: var(--surface-dark-2) !important;
+                color: var(--text-dark) !important;
+                border-color: var(--border-dark) !important;
+                -webkit-text-fill-color: var(--text-dark) !important;
+            }}
+            [data-testid="stDataFrame"] [role="columnheader"],
+            [data-testid="stDataFrame"] thead th {{
+                background: #111827 !important;
             }}
         }}
 
