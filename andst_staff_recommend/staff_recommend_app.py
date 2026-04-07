@@ -110,8 +110,8 @@ def get_chart_theme(category: str) -> str:
 def render_chart_theme_toggle(category: str):
     key = get_chart_theme_key(category)
     current = st.session_state.get(key, "dark")
-    label = "表示モード（Chart）"
-    options = ["Dark", "Print"]
+    label = "表示モード（グラフ）"
+    options = ["Dark", "Print"]  # Dark=mobile/iPad向け / Print=PC向け
     index = 0 if current == "dark" else 1
     choice = st.radio(label, options=options, index=index, horizontal=True, key=f"{key}_radio")
     st.session_state[key] = "dark" if choice == "Dark" else "light"

@@ -1,148 +1,237 @@
 import streamlit as st
 
 
+PC_BREAKPOINT_PX = 1100
+
+
 def apply_dark_theme():
     st.markdown(
-        """
+        f"""
         <style>
-        .stApp {
-            background: linear-gradient(180deg, #090d16 0%, #0b0f1a 100%);
-            color: #F3F4F6;
-        }
-        .block-container {
+        :root {{
+            --bg-dark: #090d16;
+            --bg-dark-2: #0b0f1a;
+            --surface-dark: #12182a;
+            --surface-dark-2: #151A2D;
+            --border-dark: #232845;
+            --text-dark: #F3F4F6;
+            --muted-dark: #A8B0BF;
+            --subtle-dark: #C3C9D4;
+
+            --bg-light: #FFFFFF;
+            --surface-light: #F8FAFC;
+            --surface-light-2: #F7F7F8;
+            --border-light: #D1D5DB;
+            --border-light-2: #E5E7EB;
+            --text-light: #111827;
+            --muted-light: #6B7280;
+            --hover-light: #F3F4F6;
+
+            --primary: #2563EB;
+            --primary-2: #3B82F6;
+            --success: #059669;
+        }}
+
+        .stApp {{
+            background: linear-gradient(180deg, var(--bg-dark) 0%, var(--bg-dark-2) 100%);
+            color: var(--text-dark);
+        }}
+        [data-testid="stAppViewContainer"],
+        [data-testid="stHeader"] {{
+            background: transparent;
+        }}
+        .block-container {{
             max-width: 1300px;
             padding-top: 1.5rem;
             padding-bottom: 2rem;
-        }
-        h1, h2, h3, h4, h5, h6, p, label, span, div {
-            color: #F3F4F6;
-        }
-        [data-testid="stTabs"] button {
+        }}
+        h1, h2, h3, h4, h5, h6, p, label, span, div,
+        [data-testid="stMarkdownContainer"],
+        [data-testid="stCaptionContainer"] {{
+            color: var(--text-dark);
+        }}
+        .stCaption, .section-sub {{
+            color: var(--muted-dark) !important;
+        }}
+
+        [data-testid="stTabs"] button {{
             color: #cdd5df;
             border-radius: 10px 10px 0 0;
             padding: 0.5rem 1rem;
-        }
-        [data-testid="stTabs"] button[aria-selected="true"] {
+            background: transparent !important;
+        }}
+        [data-testid="stTabs"] button[aria-selected="true"] {{
             color: #ffffff;
-            border-bottom: 2px solid #3B82F6;
-        }
-        [data-testid="stSelectbox"], [data-testid="stDateInput"], [data-testid="stNumberInput"], [data-testid="stTextInput"] {
+            border-bottom: 2px solid var(--primary-2);
+        }}
+
+        [data-testid="stSelectbox"],
+        [data-testid="stDateInput"],
+        [data-testid="stNumberInput"],
+        [data-testid="stTextInput"] {{
             background: transparent;
-        }
+        }}
         [data-testid="stSelectbox"] > div,
         [data-testid="stDateInput"] > div,
         [data-testid="stNumberInput"] > div,
-        [data-testid="stTextInput"] > div {
-            background: #12182a;
-            border: 1px solid #232845;
-            border-radius: 12px;
-        }
+        [data-testid="stTextInput"] > div,
         [data-baseweb="select"] > div,
-        [data-baseweb="input"] > div,
-        [data-baseweb="popover"] [role="listbox"] {
-            color: #F3F4F6;
-        }
-        .stButton > button, .stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {
-            background: #2563eb;
+        [data-baseweb="input"] > div {{
+            background: var(--surface-dark) !important;
+            border: 1px solid var(--border-dark) !important;
+            border-radius: 12px;
+            color: var(--text-dark) !important;
+            box-shadow: none !important;
+        }}
+        [data-baseweb="select"] input,
+        [data-baseweb="select"] span,
+        [data-baseweb="select"] div,
+        [data-baseweb="input"] input,
+        [data-baseweb="input"] div,
+        [data-testid="stDateInput"] input,
+        [data-testid="stNumberInput"] input,
+        [data-testid="stTextInput"] input {{
+            color: var(--text-dark) !important;
+            -webkit-text-fill-color: var(--text-dark) !important;
+            caret-color: var(--text-dark) !important;
+        }}
+        [data-baseweb="select"] svg,
+        [data-testid="stDateInput"] svg {{
+            fill: var(--text-dark) !important;
+            color: var(--text-dark) !important;
+        }}
+        div[data-baseweb="popover"],
+        div[role="listbox"],
+        div[role="option"] {{
+            background: var(--surface-dark) !important;
+            color: var(--text-dark) !important;
+            border-color: var(--border-dark) !important;
+        }}
+        div[role="option"]:hover {{
+            background: #1B2440 !important;
+        }}
+
+        .stButton > button, .stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {{
+            background: var(--primary);
             color: #fff;
             border: 0;
             border-radius: 12px;
             padding: 0.55rem 1rem;
             font-weight: 600;
-        }
-        .dark-card {
+        }}
+
+        .dark-card {{
             background: linear-gradient(180deg, rgba(21,26,45,0.96) 0%, rgba(15,19,34,0.96) 100%);
-            border: 1px solid #232845;
+            border: 1px solid var(--border-dark);
             border-radius: 18px;
             padding: 1rem 1.1rem;
             box-shadow: 0 6px 24px rgba(0,0,0,0.22);
             min-height: 112px;
-        }
-        .dark-card .label {
+        }}
+        .dark-card .label {{
             font-size: 0.95rem;
-            color: #c3c9d4;
+            color: var(--subtle-dark);
             margin-bottom: 0.45rem;
-        }
-        .dark-card .value {
+        }}
+        .dark-card .value {{
             font-size: 2rem;
             font-weight: 700;
             line-height: 1.1;
             color: #f8fafc;
-        }
-        .dark-card .unit {
+        }}
+        .dark-card .unit {{
             font-size: 1rem;
-            color: #c3c9d4;
+            color: var(--subtle-dark);
             margin-left: 0.2rem;
-        }
-        .dark-card .sub {
+        }}
+        .dark-card .sub {{
             margin-top: 0.35rem;
             color: #8ce99a;
             font-size: 0.9rem;
-        }
-        .section-wrap {
+        }}
+        .section-wrap {{
             margin-bottom: 0.8rem;
-        }
-        .section-title {
+        }}
+        .section-title {{
             font-size: 2rem;
             font-weight: 700;
             margin-bottom: 0.15rem;
-        }
-        .section-sub {
+        }}
+        .section-sub {{
             font-size: 0.98rem;
-            color: #a8b0bf;
             margin-bottom: 1rem;
-        }
-        [data-testid="stDataFrame"] {
-            border: 1px solid #232845;
+        }}
+
+        /* DataFrame / table readability */
+        [data-testid="stDataFrame"] {{
+            border: 1px solid var(--border-dark);
             border-radius: 16px;
             overflow: hidden;
-        }
+            background: var(--surface-dark-2) !important;
+        }}
+        [data-testid="stDataFrame"] [role="grid"],
+        [data-testid="stDataFrame"] [role="table"],
+        [data-testid="stDataFrame"] table {{
+            background: var(--surface-dark-2) !important;
+            color: var(--text-dark) !important;
+        }}
+        [data-testid="stDataFrame"] [role="columnheader"],
+        [data-testid="stDataFrame"] thead th {{
+            background: #111827 !important;
+            color: var(--text-dark) !important;
+            border-bottom: 1px solid var(--border-dark) !important;
+            font-weight: 700 !important;
+        }}
+        [data-testid="stDataFrame"] [role="gridcell"],
+        [data-testid="stDataFrame"] tbody td {{
+            background: var(--surface-dark-2) !important;
+            color: var(--text-dark) !important;
+            border-color: var(--border-dark) !important;
+        }}
 
-        /* PC light theme */
-        @media (min-width: 769px) {
-            .stApp {
-                background: #FFFFFF !important;
-                color: #111827 !important;
-            }
+        /* Desktop / PC only */
+        @media (min-width: {PC_BREAKPOINT_PX}px) {{
+            .stApp {{
+                background: var(--bg-light) !important;
+                color: var(--text-light) !important;
+            }}
             [data-testid="stAppViewContainer"],
-            [data-testid="stHeader"] {
-                background: #FFFFFF !important;
-            }
+            [data-testid="stHeader"] {{
+                background: var(--bg-light) !important;
+            }}
             [data-testid="stSidebar"],
-            [data-testid="stSidebar"] > div {
-                background: #FFFFFF !important;
-                border-right: 1px solid #E5E7EB;
-            }
+            [data-testid="stSidebar"] > div {{
+                background: var(--bg-light) !important;
+                border-right: 1px solid var(--border-light-2);
+            }}
             h1, h2, h3, h4, h5, h6, p, label, span, div,
             [data-testid="stMarkdownContainer"],
-            [data-testid="stCaptionContainer"] {
-                color: #111827 !important;
-            }
+            [data-testid="stCaptionContainer"] {{
+                color: var(--text-light) !important;
+            }}
             .section-sub,
             .dark-card .label,
             .dark-card .unit,
-            .stCaption {
-                color: #6B7280 !important;
-            }
-            [data-testid="stTabs"] button {
-                color: #6B7280 !important;
-                background: transparent !important;
-            }
-            [data-testid="stTabs"] button[aria-selected="true"] {
-                color: #111827 !important;
-                border-bottom: 2px solid #111827 !important;
-            }
+            .stCaption {{
+                color: var(--muted-light) !important;
+            }}
+            [data-testid="stTabs"] button {{
+                color: var(--muted-light) !important;
+            }}
+            [data-testid="stTabs"] button[aria-selected="true"] {{
+                color: var(--text-light) !important;
+                border-bottom: 2px solid var(--text-light) !important;
+            }}
             [data-testid="stSelectbox"] > div,
             [data-testid="stDateInput"] > div,
             [data-testid="stNumberInput"] > div,
             [data-testid="stTextInput"] > div,
             [data-baseweb="select"] > div,
-            [data-baseweb="input"] > div {
-                background: #FFFFFF !important;
-                border: 1px solid #D1D5DB !important;
-                color: #111827 !important;
-                border-radius: 12px;
-            }
+            [data-baseweb="input"] > div {{
+                background: var(--bg-light) !important;
+                border: 1px solid var(--border-light) !important;
+                color: var(--text-light) !important;
+            }}
             [data-baseweb="select"] input,
             [data-baseweb="select"] span,
             [data-baseweb="select"] div,
@@ -150,58 +239,77 @@ def apply_dark_theme():
             [data-baseweb="input"] div,
             [data-testid="stDateInput"] input,
             [data-testid="stNumberInput"] input,
-            [data-testid="stTextInput"] input {
-                color: #111827 !important;
-                -webkit-text-fill-color: #111827 !important;
-            }
-            div[data-baseweb="popover"] {
-                background: #FFFFFF !important;
-                color: #111827 !important;
-            }
-            div[data-baseweb="popover"] ul,
-            div[data-baseweb="popover"] li,
-            div[data-baseweb="popover"] div,
-            div[data-baseweb="popover"] span,
+            [data-testid="stTextInput"] input {{
+                color: var(--text-light) !important;
+                -webkit-text-fill-color: var(--text-light) !important;
+                caret-color: var(--text-light) !important;
+            }}
+            [data-baseweb="select"] svg,
+            [data-testid="stDateInput"] svg {{
+                fill: var(--text-light) !important;
+                color: var(--text-light) !important;
+            }}
+            div[data-baseweb="popover"],
             div[role="listbox"],
-            div[role="option"] {
-                background: #FFFFFF !important;
-                color: #111827 !important;
-            }
-            div[role="option"]:hover {
-                background: #F3F4F6 !important;
-            }
-            .stButton > button, .stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {
-                background: #111827 !important;
+            div[role="option"] {{
+                background: var(--bg-light) !important;
+                color: var(--text-light) !important;
+                border-color: var(--border-light-2) !important;
+            }}
+            div[role="option"]:hover {{
+                background: var(--hover-light) !important;
+            }}
+            .stButton > button, .stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {{
+                background: var(--text-light) !important;
                 color: #FFFFFF !important;
-                border: 1px solid #111827 !important;
-            }
-            .stButton > button *, .stDownloadButton > button *, div[data-testid="stFormSubmitButton"] > button * {
+                border: 1px solid var(--text-light) !important;
+            }}
+            .stButton > button *, .stDownloadButton > button *, div[data-testid="stFormSubmitButton"] > button * {{
                 color: #FFFFFF !important;
                 -webkit-text-fill-color: #FFFFFF !important;
-            }
-            .dark-card {
-                background: #F7F7F8 !important;
-                border: 1px solid #E5E7EB !important;
+            }}
+            .dark-card {{
+                background: var(--surface-light-2) !important;
+                border: 1px solid var(--border-light-2) !important;
                 box-shadow: 0 4px 14px rgba(17, 24, 39, 0.06) !important;
-            }
-            .dark-card .value {
-                color: #111827 !important;
-            }
-            .dark-card .sub {
-                color: #059669 !important;
-            }
-            [data-testid="stDataFrame"] {
-                border: 1px solid #E5E7EB !important;
-                background: #FFFFFF !important;
-            }
-        }
+            }}
+            .dark-card .value {{
+                color: var(--text-light) !important;
+            }}
+            .dark-card .sub {{
+                color: var(--success) !important;
+            }}
+            [data-testid="stDataFrame"] {{
+                border: 1px solid var(--border-light-2) !important;
+                background: var(--bg-light) !important;
+            }}
+            [data-testid="stDataFrame"] [role="grid"],
+            [data-testid="stDataFrame"] [role="table"],
+            [data-testid="stDataFrame"] table {{
+                background: var(--bg-light) !important;
+                color: var(--text-light) !important;
+            }}
+            [data-testid="stDataFrame"] [role="columnheader"],
+            [data-testid="stDataFrame"] thead th {{
+                background: #F8FAFC !important;
+                color: var(--text-light) !important;
+                border-bottom: 1px solid var(--border-light-2) !important;
+            }}
+            [data-testid="stDataFrame"] [role="gridcell"],
+            [data-testid="stDataFrame"] tbody td {{
+                background: var(--bg-light) !important;
+                color: var(--text-light) !important;
+                border-color: var(--border-light-2) !important;
+            }}
+        }}
 
-        @media (max-width: 768px) {
-            .block-container { padding-left: 0.8rem; padding-right: 0.8rem; }
-            .dark-card { min-height: 100px; padding: 0.9rem; }
-            .dark-card .value { font-size: 1.7rem; }
-            .section-title { font-size: 1.7rem; }
-        }
+        /* Mobile + iPad */
+        @media (max-width: {PC_BREAKPOINT_PX - 1}px) {{
+            .block-container {{ padding-left: 0.8rem; padding-right: 0.8rem; }}
+            .dark-card {{ min-height: 100px; padding: 0.9rem; }}
+            .dark-card .value {{ font-size: 1.7rem; }}
+            .section-title {{ font-size: 1.7rem; }}
+        }}
         </style>
         """,
         unsafe_allow_html=True,
@@ -212,8 +320,8 @@ def render_section_title(title: str, subtitle: str = ""):
     st.markdown(
         f"""
         <div class="section-wrap">
-            <div class="section-title">{title}</div>
-            {f'<div class="section-sub">{subtitle}</div>' if subtitle else ''}
+            <div class="section-title">{{title}}</div>
+            {{f'<div class="section-sub">{{subtitle}}</div>' if subtitle else ''}}
         </div>
         """,
         unsafe_allow_html=True,
@@ -227,9 +335,9 @@ def render_kpi_row(cards):
             st.markdown(
                 f"""
                 <div class="dark-card">
-                    <div class="label">{label}</div>
-                    <div><span class="value">{value}</span><span class="unit">{unit}</span></div>
-                    {f'<div class="sub">{sub}</div>' if sub else '<div class="sub">&nbsp;</div>'}
+                    <div class="label">{{label}}</div>
+                    <div><span class="value">{{value}}</span><span class="unit">{{unit}}</span></div>
+                    {{f'<div class="sub">{{sub}}</div>' if sub else '<div class="sub">&nbsp;</div>'}}
                 </div>
                 """,
                 unsafe_allow_html=True,
