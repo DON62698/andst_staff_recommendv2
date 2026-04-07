@@ -101,14 +101,23 @@ def apply_dark_theme():
             color: var(--text-dark) !important;
         }}
         div[data-baseweb="popover"],
+        div[data-baseweb="popover"] * ,
         div[role="listbox"],
-        div[role="option"] {{
+        div[role="listbox"] *,
+        div[role="option"],
+        ul[role="listbox"],
+        li[role="option"] {{
             background: var(--surface-dark) !important;
             color: var(--text-dark) !important;
             border-color: var(--border-dark) !important;
+            -webkit-text-fill-color: var(--text-dark) !important;
         }}
-        div[role="option"]:hover {{
+        div[role="option"]:hover,
+        li[role="option"]:hover,
+        div[role="option"][aria-selected="true"],
+        li[role="option"][aria-selected="true"] {{
             background: #1B2440 !important;
+            color: var(--text-dark) !important;
         }}
 
         .stButton > button, .stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {{
@@ -189,8 +198,8 @@ def apply_dark_theme():
             border-color: var(--border-dark) !important;
         }}
 
-        /* Desktop / PC only */
-        @media (min-width: {PC_BREAKPOINT_PX}px) {{
+        /* Desktop / PC only: avoid applying to touch-first tablets such as iPad */
+        @media (min-width: {PC_BREAKPOINT_PX}px) and (hover: hover) and (pointer: fine) {{
             .stApp {{
                 background: var(--bg-light) !important;
                 color: var(--text-light) !important;
@@ -250,19 +259,28 @@ def apply_dark_theme():
                 color: var(--text-light) !important;
             }}
             div[data-baseweb="popover"],
+            div[data-baseweb="popover"] *,
             div[role="listbox"],
-            div[role="option"] {{
+            div[role="listbox"] *,
+            div[role="option"],
+            ul[role="listbox"],
+            li[role="option"] {{
                 background: var(--bg-light) !important;
                 color: var(--text-light) !important;
                 border-color: var(--border-light-2) !important;
+                -webkit-text-fill-color: var(--text-light) !important;
             }}
-            div[role="option"]:hover {{
+            div[role="option"]:hover,
+            li[role="option"]:hover,
+            div[role="option"][aria-selected="true"],
+            li[role="option"][aria-selected="true"] {{
                 background: var(--hover-light) !important;
+                color: var(--text-light) !important;
             }}
             .stButton > button, .stDownloadButton > button, div[data-testid="stFormSubmitButton"] > button {{
-                background: var(--text-light) !important;
+                background: var(--primary) !important;
                 color: #FFFFFF !important;
-                border: 1px solid var(--text-light) !important;
+                border: 1px solid var(--primary) !important;
             }}
             .stButton > button *, .stDownloadButton > button *, div[data-testid="stFormSubmitButton"] > button * {{
                 color: #FFFFFF !important;
