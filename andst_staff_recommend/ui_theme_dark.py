@@ -317,11 +317,12 @@ def apply_dark_theme():
 
 
 def render_section_title(title: str, subtitle: str = ""):
+    subtitle_html = f'<div class="section-sub">{subtitle}</div>' if subtitle else ""
     st.markdown(
         f"""
         <div class="section-wrap">
-            <div class="section-title">{{title}}</div>
-            {{f'<div class="section-sub">{{subtitle}}</div>' if subtitle else ''}}
+            <div class="section-title">{title}</div>
+            {subtitle_html}
         </div>
         """,
         unsafe_allow_html=True,
@@ -332,12 +333,13 @@ def render_kpi_row(cards):
     cols = st.columns(len(cards))
     for col, (label, value, unit, sub) in zip(cols, cards):
         with col:
+            sub_html = f'<div class="sub">{sub}</div>' if sub else '<div class="sub">&nbsp;</div>'
             st.markdown(
                 f"""
                 <div class="dark-card">
-                    <div class="label">{{label}}</div>
-                    <div><span class="value">{{value}}</span><span class="unit">{{unit}}</span></div>
-                    {{f'<div class="sub">{{sub}}</div>' if sub else '<div class="sub">&nbsp;</div>'}}
+                    <div class="label">{label}</div>
+                    <div><span class="value">{value}</span><span class="unit">{unit}</span></div>
+                    {sub_html}
                 </div>
                 """,
                 unsafe_allow_html=True,
