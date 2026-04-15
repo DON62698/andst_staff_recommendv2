@@ -633,10 +633,16 @@ def show_statistics(category: str, label: str):
             .reset_index(drop=True)
         )
         staff_sum.insert(0, "順位", staff_sum.index + 1)
-        if len(staff_sum) > 0:
-            staff_sum.loc[0, "順位"] = f'{staff_sum.loc[0, "順位"]} 👑'
         staff_sum = staff_sum.rename(columns={"name": "スタッフ", "count": "合計"})
-        st.dataframe(staff_sum[["順位", "スタッフ", "合計"]], use_container_width=True)
+
+        # 表示用にだけ順位を文字列化して王冠を付与する
+        # （元データの数値型は維持して pandas の dtype エラーを防ぐ）
+        staff_sum_display = staff_sum[["順位", "スタッフ", "合計"]].copy()
+        staff_sum_display["順位"] = staff_sum_display["順位"].astype(str)
+        if not staff_sum_display.empty:
+            staff_sum_display.loc[0, "順位"] = f'{staff_sum_display.loc[0, "順位"]} 👑'
+
+        st.dataframe(staff_sum_display, use_container_width=True)
 
     # --- 月別累計（年次）：公曆年/月，不受 ISO 影響 ✅ ---
     st.subheader("月別累計（年次）")
