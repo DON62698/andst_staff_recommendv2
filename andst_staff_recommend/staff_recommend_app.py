@@ -750,7 +750,6 @@ def show_refund_event():
     staff_names = staff_total["name"].tolist()
 
     st.markdown("### 出勤日数入力")
-    st.caption("AVG = 期間累計 ÷ 出勤日数。未入力または 0 の場合、AVG は 0 として表示します。")
 
     attendance_days = {}
     cols = st.columns(4)
