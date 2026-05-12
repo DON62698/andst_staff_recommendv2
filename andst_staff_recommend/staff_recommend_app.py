@@ -691,10 +691,172 @@ def show_statistics(category: str, label: str):
         st.pyplot(fig)
         plt.close(fig)
 
+
+
+# -----------------------------
+# Temporary Event page（還元イベント）
+# -----------------------------
+def show_refund_event():
+    """5/13〜5/20 の and st 限定・臨時ランキング画面。"""
+    df_all = ensure_dataframe(st.session_state.data)
+
+    st.subheader("還元イベント")
+    st.caption("5/13〜5/20 の and st（新規＋既存＋LINE）のみ集計します。出勤日数はこの画面だけで入力する臨時項目です。")
+
+    # 年だけ選べるようにして、来年以降も同じ画面を使えるようにする
+    years = year_options_calendar(df_all)
+    this_year = date.today().year
+    if this_year not in years:
+        years = sorted(set(years + [this_year]))
+    default_year = this_year if this_year in years else years[-1]
+    event_year = st.selectbox(
+        "イベント年",
+        options=years,
+        index=years.index(default_year),
+        key="refund_event_year",
+    )
+
+    start_dt = pd.Timestamp(year=int(event_year), month=5, day=13)
+    end_dt = pd.Timestamp(year=int(event_year), month=5, day=20)
+
+    df_event = df_all[
+        (df_all["date"] >= start_dt)
+        & (df_all["date"] <= end_dt)
+        & (df_all["type"].isin(["new", "exist", "line"]))
+    ].copy()
+
+    st.markdown(f"#### 集計期間：{start_dt.strftime('%Y/%m/%d')} 〜 {end_dt.strftime('%Y/%m/%d')}")
+
+    if df_event.empty:
+        st.info("この期間の and st データがありません。")
+        return
+
+    # 日別×スタッフ別の and st 合計
+    daily_staff = (
+        df_event.groupby(["date", "name"], as_index=False)["count"]
+        .sum()
+        .rename(columns={"count": "daily_total"})
+    )
+
+    # 累計ランキング用
+    staff_total = (
+        df_event.groupby("name", as_index=False)["count"]
+        .sum()
+        .rename(columns={"count": "total"})
+        .sort_values(["total", "name"], ascending=[False, True])
+        .reset_index(drop=True)
+    )
+
+    staff_names = staff_total["name"].tolist()
+
+    st.markdown("### 出勤日数入力")
+    st.caption("AVG = 期間累計 ÷ 出勤日数。未入力または 0 の場合、AVG は 0 として表示します。")
+
+    attendance_days = {}
+    cols = st.columns(4)
+    for i, staff in enumerate(staff_names):
+        with cols[i % 4]:
+            attendance_days[staff] = st.number_input(
+                f"{staff}",
+                min_value=0.0,
+                max_value=8.0,
+                step=0.5,
+                value=float(st.session_state.get(f"refund_attendance_{event_year}_{staff}", 0.0)),
+                key=f"refund_attendance_{event_year}_{staff}",
+            )
+
+    ranking = staff_total.copy()
+    ranking["出勤日数"] = ranking["name"].map(attendance_days).fillna(0).astype(float)
+    ranking["AVG"] = ranking.apply(
+        lambda r: round(float(r["total"]) / float(r["出勤日数"]), 2) if float(r["出勤日数"]) > 0 else 0,
+        axis=1,
+    )
+
+    # 1. AVG
+    avg_rank = ranking.sort_values(["AVG", "total", "name"], ascending=[False, False, True]).reset_index(drop=True)
+    avg_winner = avg_rank.iloc[0]
+
+    # 2. 期間中の単日最多
+    max_daily_count = int(daily_staff["daily_total"].max())
+    max_daily_rows = daily_staff[daily_staff["daily_total"] == max_daily_count].copy()
+    max_daily_rows = max_daily_rows.sort_values(["date", "name"])
+    max_daily_names = "、".join(max_daily_rows["name"].astype(str).unique().tolist())
+
+    # 3. 累計最多
+    total_rank = ranking.sort_values(["total", "AVG", "name"], ascending=[False, False, True]).reset_index(drop=True)
+    total_winner = total_rank.iloc[0]
+
+    # 4. 単日最多達成回数（日ごとの1位。タイの場合は同点者全員に1回カウント）
+    max_by_day = daily_staff.groupby("date")["daily_total"].transform("max")
+    daily_winners = daily_staff[daily_staff["daily_total"] == max_by_day].copy()
+    win_counts = (
+        daily_winners.groupby("name", as_index=False)["date"]
+        .nunique()
+        .rename(columns={"date": "単日最多達成回数"})
+    )
+    win_rank = (
+        ranking[["name", "total", "AVG"]]
+        .merge(win_counts, on="name", how="left")
+        .fillna({"単日最多達成回数": 0})
+    )
+    win_rank["単日最多達成回数"] = win_rank["単日最多達成回数"].astype(int)
+    win_rank = win_rank.sort_values(["単日最多達成回数", "total", "AVG", "name"], ascending=[False, False, False, True]).reset_index(drop=True)
+    win_winner = win_rank.iloc[0]
+
+    render_kpi_row([
+        ("AVG 1位", str(avg_winner["name"]), f'{avg_winner["AVG"]:.2f}', f'累計 {int(avg_winner["total"])}件 / 出勤 {avg_winner["出勤日数"]:g}日'),
+        ("単日最多", max_daily_names, f"{max_daily_count}", "件"),
+        ("累計最多", str(total_winner["name"]), f'{int(total_winner["total"])}', "件"),
+        ("単日最多達成回数", str(win_winner["name"]), f'{int(win_winner["単日最多達成回数"])}', "回"),
+    ])
+
+    st.markdown("### 個人タイトル一覧")
+    title_table = pd.DataFrame([
+        {
+            "項目": "AVG",
+            "スタッフ": avg_winner["name"],
+            "数値": f'{avg_winner["AVG"]:.2f}',
+            "補足": f'累計 {int(avg_winner["total"])}件 / 出勤 {avg_winner["出勤日数"]:g}日',
+        },
+        {
+            "項目": "期間中 単日最多",
+            "スタッフ": max_daily_names,
+            "数値": f"{max_daily_count}件",
+            "補足": " / ".join([f'{r["date"].strftime("%m/%d")} {r["name"]}' for _, r in max_daily_rows.iterrows()]),
+        },
+        {
+            "項目": "累計最多",
+            "スタッフ": total_winner["name"],
+            "数値": f'{int(total_winner["total"])}件',
+            "補足": "期間累計",
+        },
+        {
+            "項目": "単日最多達成回数",
+            "スタッフ": win_winner["name"],
+            "数値": f'{int(win_winner["単日最多達成回数"])}回',
+            "補足": "日別1位の回数。同点の場合は全員カウント",
+        },
+    ])
+    st.dataframe(title_table, use_container_width=True, hide_index=True)
+
+    st.markdown("### スタッフ別 詳細")
+    detail = ranking.merge(win_counts, on="name", how="left").fillna({"単日最多達成回数": 0})
+    detail["単日最多達成回数"] = detail["単日最多達成回数"].astype(int)
+    detail = detail.sort_values(["total", "AVG", "単日最多達成回数", "name"], ascending=[False, False, False, True]).reset_index(drop=True)
+    detail.insert(0, "順位", detail.index + 1)
+    detail = detail.rename(columns={"name": "スタッフ", "total": "累計"})
+    st.dataframe(detail[["順位", "スタッフ", "累計", "出勤日数", "AVG", "単日最多達成回数"]], use_container_width=True, hide_index=True)
+
+    st.markdown("### 日別スタッフ別 明細")
+    detail_daily = daily_staff.copy()
+    detail_daily["date"] = detail_daily["date"].dt.strftime("%m/%d")
+    detail_daily = detail_daily.rename(columns={"date": "日付", "name": "スタッフ", "daily_total": "and st 合計"})
+    st.dataframe(detail_daily.sort_values(["日付", "and st 合計", "スタッフ"], ascending=[True, False, True]), use_container_width=True, hide_index=True)
+
 # -----------------------------
 # Tabs
 # -----------------------------
-tab_reg, tab3, tab4, tab5 = st.tabs(["件数登録", "and st 分析", "アンケート分析", "データ管理"])
+tab_reg, tab_event, tab3, tab4, tab5 = st.tabs(["件数登録", "還元イベント", "and st 分析", "アンケート分析", "データ管理"])
 
 # -----------------------------
 # 件数登録（and st + アンケート 合併）
@@ -785,6 +947,12 @@ with tab_reg:
         render_rate_block("survey", "アンケート", survey_total, survey_target, ym)
 
     render_refresh_button("refresh_reg_tab")
+
+# -----------------------------
+# 還元イベント
+# -----------------------------
+with tab_event:
+    show_refund_event()
 
 # -----------------------------
 # and st 分析
