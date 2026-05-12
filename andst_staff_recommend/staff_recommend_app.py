@@ -9,6 +9,8 @@ import pandas as pd
 import streamlit as st
 import html
 import matplotlib.pyplot as plt
+import gspread
+from google.oauth2.service_account import Credentials
 
 from ui_theme_dark import apply_dark_theme, render_kpi_row, render_section_title
 from charts_dark import weekly_progress_chart
@@ -101,26 +103,75 @@ def ymd(d: date) -> str:
 def current_year_month() -> str:
     return date.today().strftime("%Y-%m")
 
-def refund_attendance_file_path() -> str:
-    return os.path.join(os.path.dirname(__file__), "refund_attendance.json")
 
+# -----------------------------
+# Refund attendance (Google Sheets)
+# -----------------------------
+@st.cache_resource
+def get_refund_attendance_ws():
+    scopes = [
+        "https://www.googleapis.com/auth/spreadsheets",
+        "https://www.googleapis.com/auth/drive",
+    ]
 
-def load_refund_attendance() -> dict:
-    path = refund_attendance_file_path()
+    creds = Credentials.from_service_account_info(
+        dict(st.secrets["gcp_service_account"]),
+        scopes=scopes,
+    )
+
+    gc = gspread.authorize(creds)
+
+    spreadsheet = gc.open("and_st_recommend")
+
     try:
-        if os.path.exists(path):
-            with open(path, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                return data if isinstance(data, dict) else {}
+        ws = spreadsheet.worksheet("refund_attendance")
+    except Exception:
+        ws = spreadsheet.add_worksheet(title="refund_attendance", rows=200, cols=10)
+        ws.append_row(["year", "staff", "attendance_days"])
+
+    return ws
+
+
+def load_refund_attendance():
+    try:
+        ws = get_refund_attendance_ws()
+        records = ws.get_all_records()
+
+        data = {}
+        for r in records:
+            year = str(r.get("year", "")).strip()
+            staff = str(r.get("staff", "")).strip()
+            days = int(r.get("attendance_days", 0))
+
+            if not year or not staff:
+                continue
+
+            if year not in data:
+                data[year] = {}
+
+            data[year][staff] = days
+
+        return data
+
     except Exception:
         return {}
-    return {}
 
 
-def save_refund_attendance(data: dict) -> None:
-    path = refund_attendance_file_path()
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+def save_refund_attendance(data):
+    ws = get_refund_attendance_ws()
+
+    ws.clear()
+    ws.append_row(["year", "staff", "attendance_days"])
+
+    rows = []
+
+    for year, staffs in data.items():
+        for staff, days in staffs.items():
+            rows.append([year, staff, int(days)])
+
+    if rows:
+        ws.append_rows(rows)
+
 
 
 def get_chart_theme_key(category: str) -> str:
