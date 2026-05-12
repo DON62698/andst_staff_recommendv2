@@ -758,10 +758,10 @@ def show_refund_event():
         with cols[i % 4]:
             attendance_days[staff] = st.number_input(
                 f"{staff}",
-                min_value=0.0,
-                max_value=8.0,
-                step=0.5,
-                value=float(st.session_state.get(f"refund_attendance_{event_year}_{staff}", 0.0)),
+                min_value=0,
+                max_value=8,
+                step=1,
+                value=int(st.session_state.get(f"refund_attendance_{event_year}_{staff}", 0)),
                 key=f"refund_attendance_{event_year}_{staff}",
             )
 
