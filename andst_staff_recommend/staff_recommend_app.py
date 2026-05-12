@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import json
 from datetime import date
 import uuid
 import calendar
@@ -99,6 +100,28 @@ def ymd(d: date) -> str:
 
 def current_year_month() -> str:
     return date.today().strftime("%Y-%m")
+
+def refund_attendance_file_path() -> str:
+    return os.path.join(os.path.dirname(__file__), "refund_attendance.json")
+
+
+def load_refund_attendance() -> dict:
+    path = refund_attendance_file_path()
+    try:
+        if os.path.exists(path):
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+    return {}
+
+
+def save_refund_attendance(data: dict) -> None:
+    path = refund_attendance_file_path()
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+
 
 def get_chart_theme_key(category: str) -> str:
     return f"chart_theme_{category}"
@@ -702,7 +725,6 @@ def show_refund_event():
     df_all = ensure_dataframe(st.session_state.data)
 
     st.subheader("還元イベント")
-    st.caption("5/13〜5/20 の and st（新規＋既存＋LINE）のみ集計します。出勤日数はこの画面だけで入力する臨時項目です。")
 
     # 年だけ選べるようにして、来年以降も同じ画面を使えるようにする
     years = year_options_calendar(df_all)
@@ -752,18 +774,35 @@ def show_refund_event():
 
     st.markdown("### 出勤日数入力")
 
+    # 出勤日数をローカルJSONに保存して、再読み込み後も保持する
+    attendance_store = load_refund_attendance()
+    year_key = str(event_year)
+    if year_key not in attendance_store or not isinstance(attendance_store.get(year_key), dict):
+        attendance_store[year_key] = {}
+
     attendance_days = {}
     cols = st.columns(4)
     for i, staff in enumerate(staff_names):
+        widget_key = f"refund_attendance_{event_year}_{staff}"
+        saved_value = int(attendance_store[year_key].get(staff, 0))
+        if widget_key not in st.session_state:
+            st.session_state[widget_key] = saved_value
+
         with cols[i % 4]:
             attendance_days[staff] = st.number_input(
                 f"{staff}",
                 min_value=0,
                 max_value=8,
                 step=1,
-                value=int(st.session_state.get(f"refund_attendance_{event_year}_{staff}", 0)),
-                key=f"refund_attendance_{event_year}_{staff}",
+                key=widget_key,
             )
+
+    # 入力内容を毎回保存
+    attendance_store[year_key] = {staff: int(attendance_days.get(staff, 0)) for staff in staff_names}
+    try:
+        save_refund_attendance(attendance_store)
+    except Exception as e:
+        st.warning(f"出勤日数の保存に失敗しました：{e}")
 
     ranking = staff_total.copy()
     ranking["出勤日数"] = ranking["name"].map(attendance_days).fillna(0).astype(float)
@@ -803,8 +842,12 @@ def show_refund_event():
     win_rank = win_rank.sort_values(["単日最多達成回数", "total", "AVG", "name"], ascending=[False, False, False, True]).reset_index(drop=True)
     win_winner = win_rank.iloc[0]
 
+    # 全スタッフ合計
+    overall_total = int(df_event["count"].sum())
+
     # 還元イベント専用カード：画像イメージに合わせたUI
     refund_cards = [
+        ("全体累計", "全スタッフ", f"{overall_total}", "件"),
         ("AVG 1位", str(avg_winner["name"]), f'{avg_winner["AVG"]:.2f}', f'累計 {int(avg_winner["total"])}件 / 出勤 {avg_winner["出勤日数"]:g}日'),
         ("単日最多", max_daily_names, f"{max_daily_count}", "件"),
         ("累計最多", str(total_winner["name"]), f'{int(total_winner["total"])}', "件"),
@@ -820,8 +863,8 @@ def show_refund_event():
                 linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(3,10,24,0.98) 100%);
             border: 1px solid rgba(74, 96, 154, 0.62);
             border-radius: 18px;
-            padding: 1.45rem 1.65rem 1.35rem 1.65rem;
-            min-height: 210px;
+            padding: 1.35rem 1.25rem 1.25rem 1.25rem;
+            min-height: 205px;
             box-shadow: 0 12px 32px rgba(0,0,0,0.24);
         }
         .refund-card-title {
@@ -842,7 +885,7 @@ def show_refund_event():
         }
         .refund-staff {
             color: #f8fafc;
-            font-size: 1.10rem;
+            font-size: 1.00rem;
             font-weight: 700;
             line-height: 1.25;
             min-height: 1.6em;
@@ -857,7 +900,7 @@ def show_refund_event():
         }
         .refund-number {
             color: #7ee787;
-            font-size: 3.10rem;
+            font-size: 2.75rem;
             font-weight: 900;
             line-height: 0.95;
             letter-spacing: 0.01em;
@@ -888,7 +931,7 @@ def show_refund_event():
         unsafe_allow_html=True,
     )
 
-    refund_cols = st.columns(4)
+    refund_cols = st.columns(len(refund_cards))
     for col, (label, staff_name, main_value, sub) in zip(refund_cols, refund_cards):
         with col:
             unit_html = html.escape(sub) if sub in ["件", "回"] else ""
@@ -910,6 +953,12 @@ def show_refund_event():
 
     st.markdown("### 個人タイトル一覧")
     title_table = pd.DataFrame([
+        {
+            "項目": "全体累計",
+            "スタッフ": "全スタッフ",
+            "数値": f"{overall_total}件",
+            "補足": "期間中のand st合計",
+        },
         {
             "項目": "AVG",
             "スタッフ": avg_winner["name"],
