@@ -6,6 +6,7 @@ import calendar
 
 import pandas as pd
 import streamlit as st
+import html
 import matplotlib.pyplot as plt
 
 from ui_theme_dark import apply_dark_theme, render_kpi_row, render_section_title
@@ -802,12 +803,110 @@ def show_refund_event():
     win_rank = win_rank.sort_values(["単日最多達成回数", "total", "AVG", "name"], ascending=[False, False, False, True]).reset_index(drop=True)
     win_winner = win_rank.iloc[0]
 
-    render_kpi_row([
+    # 還元イベント専用カード：画像イメージに合わせたUI
+    refund_cards = [
         ("AVG 1位", str(avg_winner["name"]), f'{avg_winner["AVG"]:.2f}', f'累計 {int(avg_winner["total"])}件 / 出勤 {avg_winner["出勤日数"]:g}日'),
         ("単日最多", max_daily_names, f"{max_daily_count}", "件"),
         ("累計最多", str(total_winner["name"]), f'{int(total_winner["total"])}', "件"),
         ("単日最多達成回数", str(win_winner["name"]), f'{int(win_winner["単日最多達成回数"])}', "回"),
-    ])
+    ]
+
+    st.markdown(
+        """
+        <style>
+        .refund-card {
+            background:
+                radial-gradient(circle at 20% 0%, rgba(34,197,94,0.10), transparent 32%),
+                linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(3,10,24,0.98) 100%);
+            border: 1px solid rgba(74, 96, 154, 0.62);
+            border-radius: 18px;
+            padding: 1.45rem 1.65rem 1.35rem 1.65rem;
+            min-height: 210px;
+            box-shadow: 0 12px 32px rgba(0,0,0,0.24);
+        }
+        .refund-card-title {
+            display: flex;
+            align-items: center;
+            gap: 0.55rem;
+            color: #86efac;
+            font-size: 1.05rem;
+            font-weight: 800;
+            letter-spacing: 0.02em;
+            margin-bottom: 1.35rem;
+            white-space: nowrap;
+        }
+        .refund-crown {
+            font-size: 1.35rem;
+            line-height: 1;
+            filter: drop-shadow(0 0 8px rgba(134,239,172,0.35));
+        }
+        .refund-staff {
+            color: #f8fafc;
+            font-size: 1.10rem;
+            font-weight: 700;
+            line-height: 1.25;
+            min-height: 1.6em;
+            margin-bottom: 1.25rem;
+            word-break: break-word;
+        }
+        .refund-number-row {
+            display: flex;
+            align-items: flex-end;
+            gap: 0.42rem;
+            margin-bottom: 1.05rem;
+        }
+        .refund-number {
+            color: #7ee787;
+            font-size: 3.10rem;
+            font-weight: 900;
+            line-height: 0.95;
+            letter-spacing: 0.01em;
+            text-shadow: 0 0 14px rgba(126,231,135,0.22);
+        }
+        .refund-unit {
+            color: #e2e8f0;
+            font-size: 1.05rem;
+            font-weight: 800;
+            line-height: 1.4;
+            margin-bottom: 0.12rem;
+        }
+        .refund-sub {
+            color: #22d3ee;
+            font-size: 0.92rem;
+            font-weight: 800;
+            line-height: 1.25;
+            min-height: 1.2em;
+        }
+        @media (max-width: 900px) {
+            .refund-card { min-height: 180px; padding: 1.15rem; }
+            .refund-card-title { font-size: 0.95rem; }
+            .refund-staff { font-size: 1rem; }
+            .refund-number { font-size: 2.45rem; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    refund_cols = st.columns(4)
+    for col, (label, staff_name, main_value, sub) in zip(refund_cols, refund_cards):
+        with col:
+            unit_html = html.escape(sub) if sub in ["件", "回"] else ""
+            sub_html = "" if sub in ["件", "回"] else html.escape(sub)
+            st.markdown(
+                f"""
+                <div class="refund-card">
+                    <div class="refund-card-title"><span class="refund-crown">♛</span><span>{html.escape(label)}</span></div>
+                    <div class="refund-staff">{html.escape(staff_name)}</div>
+                    <div class="refund-number-row">
+                        <span class="refund-number">{html.escape(main_value)}</span>
+                        <span class="refund-unit">{unit_html}</span>
+                    </div>
+                    <div class="refund-sub">{sub_html}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
     st.markdown("### 個人タイトル一覧")
     title_table = pd.DataFrame([
