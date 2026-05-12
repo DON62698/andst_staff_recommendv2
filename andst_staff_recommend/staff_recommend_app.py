@@ -896,9 +896,14 @@ def show_refund_event():
     # 全スタッフ合計
     overall_total = int(df_event["count"].sum())
 
+    # 全体ダウンロード率：app（新規＋既存）/ and st総数（新規＋既存＋LINE）
+    app_total = int(df_event[df_event["type"].isin(["new", "exist"])]["count"].sum())
+    app_rate = round(app_total * 100.0 / overall_total, 1) if overall_total > 0 else 0.0
+
     # 還元イベント専用カード：画像イメージに合わせたUI
     refund_cards = [
         ("全体累計", "全スタッフ", f"{overall_total}", "件"),
+        ("全体DL率", f"app {app_total}件", f"{app_rate:.1f}", "%"),
         ("AVG 1位", str(avg_winner["name"]), f'{avg_winner["AVG"]:.2f}', f'累計 {int(avg_winner["total"])}件 / 出勤 {avg_winner["出勤日数"]:g}日'),
         ("単日最多", max_daily_names, f"{max_daily_count}", "件"),
         ("累計最多", str(total_winner["name"]), f'{int(total_winner["total"])}', "件"),
@@ -914,7 +919,7 @@ def show_refund_event():
                 linear-gradient(180deg, rgba(15,23,42,0.98) 0%, rgba(3,10,24,0.98) 100%);
             border: 1px solid rgba(74, 96, 154, 0.62);
             border-radius: 18px;
-            padding: 1.35rem 1.25rem 1.25rem 1.25rem;
+            padding: 1.25rem 1.05rem 1.15rem 1.05rem;
             min-height: 205px;
             box-shadow: 0 12px 32px rgba(0,0,0,0.24);
         }
@@ -923,7 +928,7 @@ def show_refund_event():
             align-items: center;
             gap: 0.55rem;
             color: #86efac;
-            font-size: 1.05rem;
+            font-size: 0.95rem;
             font-weight: 800;
             letter-spacing: 0.02em;
             margin-bottom: 1.35rem;
@@ -936,7 +941,7 @@ def show_refund_event():
         }
         .refund-staff {
             color: #f8fafc;
-            font-size: 1.00rem;
+            font-size: 0.92rem;
             font-weight: 700;
             line-height: 1.25;
             min-height: 1.6em;
@@ -951,7 +956,7 @@ def show_refund_event():
         }
         .refund-number {
             color: #7ee787;
-            font-size: 2.75rem;
+            font-size: 2.35rem;
             font-weight: 900;
             line-height: 0.95;
             letter-spacing: 0.01em;
@@ -959,7 +964,7 @@ def show_refund_event():
         }
         .refund-unit {
             color: #e2e8f0;
-            font-size: 1.05rem;
+            font-size: 0.95rem;
             font-weight: 800;
             line-height: 1.4;
             margin-bottom: 0.12rem;
@@ -985,8 +990,8 @@ def show_refund_event():
     refund_cols = st.columns(len(refund_cards))
     for col, (label, staff_name, main_value, sub) in zip(refund_cols, refund_cards):
         with col:
-            unit_html = html.escape(sub) if sub in ["件", "回"] else ""
-            sub_html = "" if sub in ["件", "回"] else html.escape(sub)
+            unit_html = html.escape(sub) if sub in ["件", "回", "%"] else ""
+            sub_html = "" if sub in ["件", "回", "%"] else html.escape(sub)
             st.markdown(
                 f"""
                 <div class="refund-card">
@@ -1009,6 +1014,12 @@ def show_refund_event():
             "スタッフ": "全スタッフ",
             "数値": f"{overall_total}件",
             "補足": "期間中のand st合計",
+        },
+        {
+            "項目": "全体DL率",
+            "スタッフ": "app",
+            "数値": f"{app_rate:.1f}%",
+            "補足": f"app {app_total}件 / 全体 {overall_total}件",
         },
         {
             "項目": "AVG",
