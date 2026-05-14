@@ -907,7 +907,7 @@ def show_refund_event():
         ("AVG 1位", str(avg_winner["name"]), f'{avg_winner["AVG"]:.2f}', f'累計 {int(avg_winner["total"])}件 / 出勤 {avg_winner["出勤日数"]:g}日'),
         ("単日最多", max_daily_names, f"{max_daily_count}", "件"),
         ("累計最多", str(total_winner["name"]), f'{int(total_winner["total"])}', "件"),
-        ("単日最多達成回数", str(win_winner["name"]), f'{int(win_winner["単日最多達成回数"])}', "回"),
+        ("単日MVP", str(win_winner["name"]), f'{int(win_winner["単日最多達成回数"])}', "回"),
     ]
 
     st.markdown(
@@ -1040,7 +1040,7 @@ def show_refund_event():
             "補足": "期間累計",
         },
         {
-            "項目": "単日最多達成回数",
+            "項目": "単日MVP",
             "スタッフ": win_winner["name"],
             "数値": f'{int(win_winner["単日最多達成回数"])}回',
             "補足": "日別1位の回数。同点の場合は全員カウント",
@@ -1054,7 +1054,8 @@ def show_refund_event():
     detail = detail.sort_values(["total", "AVG", "単日最多達成回数", "name"], ascending=[False, False, False, True]).reset_index(drop=True)
     detail.insert(0, "順位", detail.index + 1)
     detail = detail.rename(columns={"name": "スタッフ", "total": "累計"})
-    st.dataframe(detail[["順位", "スタッフ", "累計", "出勤日数", "AVG", "単日最多達成回数"]], use_container_width=True, hide_index=True)
+    detail_display = detail[["順位", "スタッフ", "累計", "出勤日数", "AVG", "単日最多達成回数"]].rename(columns={"単日最多達成回数": "単日MVP"})
+    st.dataframe(detail_display, use_container_width=True, hide_index=True)
 
     st.markdown("### 日別スタッフ別 明細")
     detail_daily = daily_staff.copy()
